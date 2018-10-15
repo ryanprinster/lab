@@ -7,6 +7,10 @@ sudo: true
 
 language: c++
 
+compiler:
+  - clang
+  - gcc
+
 addons:
   apt:
     packages:
@@ -29,4 +33,7 @@ before_install:
   - sudo apt-get install bazel
 
 script:
-  - bazel test -c opt --copt=-Wno-maybe-uninitialized --copt=-Wno-sign-compare --show_progress_rate_limit=300 //...
+  - case "${CXX}" in
+      "g++")     bazel test --show_progress_rate_limit=20 -c opt --copt=-Wno-sign-compare --copt=-Wno-maybe-uninitialized //... ;;
+      "clang++") bazel test --show_progress_rate_limit=20 -c opt --copt=-Wno-sign-compare --copt=-Wno-uninitialized --cxxopt=-std=c++11 //... ;;
+    esac
