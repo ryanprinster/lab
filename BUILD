@@ -802,10 +802,7 @@ cc_library(
     hdrs = ["public/dmlab.h"],
     copts = IOQ3_COMMON_COPTS,
     defines = IOQ3_COMMON_DEFINES,
-    linkopts = [
-        "-lGL",
-        "-lrt",
-    ],
+    linkopts = ["-framework OpenGL"],
     deps = IOQ3_COMMON_DEPS,
 )
 

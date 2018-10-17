@@ -24,17 +24,6 @@ new_http_archive(
 )
 
 new_http_archive(
-    name = "glib_archive",
-    build_file = "glib.BUILD",
-    sha256 = "0cbb3d31c9d181bbcc97cba3d9dbe3250f75e2da25e5f7c8bf5a993fe54baf6a",
-    strip_prefix = "glib-2.55.1",
-    urls = [
-        "https://mirror.bazel.build/ftp.gnome.org/pub/gnome/sources/glib/2.55/glib-2.55.1.tar.xz",
-        "https://ftp.gnome.org/pub/gnome/sources/glib/2.55/glib-2.55.1.tar.xz",
-    ],
-)
-
-new_http_archive(
     name = "jpeg_archive",
     build_file = "jpeg.BUILD",
     sha256 = "650250979303a649e21f87b5ccd02672af1ea6954b911342ea491f351ceb7122",
@@ -99,13 +88,19 @@ new_http_archive(
 
 # TODO: Replace with hermetic build
 new_local_repository(
+    name = "glib_archive",
+    build_file = "glib.BUILD",
+    path ="/usr/local/Cellar/glib/2.58.1",
+)
+
+new_local_repository(
     name = "sdl_system",
     build_file = "sdl.BUILD",
-    path = "/usr",
+    path = "/usr/local/Cellar/sdl2/2.0.8",
 )
 
 new_local_repository(
     name = "python_system",
     build_file = "python.BUILD",
-    path = "/usr",
+    path = "/Users/ThisCouldBeYou/homebrew/Cellar",
 )
