@@ -923,7 +923,7 @@ cc_library(
     hdrs = ["public/dmlab.h"],
     data = [
         ":libdmlab_headless_hw.so",
-        ":libdmlab_headless_sw.so",
+        #":libdmlab_headless_sw.so",
     ],
     linkopts = ["-ldl"],
     visibility = ["//testing:__subpackages__"],
