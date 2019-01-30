@@ -251,7 +251,8 @@ textures/map/lg_sky_02_bk
 textures/map/lg_sky_01
 {
     nomipmaps
-    qer_editorimage textures/map/lg_sky_01_up.tga
+    qer_editorimage textures/map/lab_games/room/ceiling.tga
+    //qer_editorimage textures/map/lg_sky_01_up.tga
     surfaceparm noimpact
     surfaceparm nolightmap
     q3map_surfacelight 600
@@ -266,7 +267,8 @@ textures/map/lg_sky_01_up
     q3map_surfacelight 5000
     surfaceparm nolightmap
     {
-        map textures/map/lg_sky_01_up.tga
+        map textures/map/lab_games/room/ceiling.tga
+        // map textures/map/lg_sky_01_up.tga
         rgbGen identity
     }
 }
@@ -277,7 +279,8 @@ textures/map/lg_sky_01_dn
     q3map_surfacelight 5000
     surfaceparm nolightmap
     {
-        map textures/map/lg_sky_01_dn.tga
+        // map textures/map/lg_sky_01_dn.tga
+        map textures/map/lab_games/room/floor.tga
         rgbGen identity
     }
 }
@@ -288,7 +291,8 @@ textures/map/lg_sky_01_lf
     q3map_surfacelight 5000
     surfaceparm nolightmap
     {
-        map textures/map/lg_sky_01_lf.tga
+        // map textures/map/lg_sky_01_lf.tga
+        map textures/map/lab_games/room/west.tga
         rgbGen identity
     }
 }
@@ -299,7 +303,8 @@ textures/map/lg_sky_01_rt
     q3map_surfacelight 5000
     surfaceparm nolightmap
     {
-        map textures/map/lg_sky_01_rt.tga
+        // map textures/map/lg_sky_01_rt.tga
+        map textures/map/lab_games/room/east.tga
        rgbGen identity
     }
 }
@@ -310,7 +315,8 @@ textures/map/lg_sky_01_ft
     q3map_surfacelight 5000
     surfaceparm nolightmap
     {
-        map textures/map/lg_sky_01_ft.tga
+        // map textures/map/lg_sky_01_ft.tga
+        map textures/map/lab_games/room/north.tga
         rgbGen identity
     }
 }
@@ -321,7 +327,8 @@ textures/map/lg_sky_01_bk
     q3map_surfacelight 5000
     surfaceparm nolightmap
     {
-        map textures/map/lg_sky_01_bk.tga
+        // map textures/map/lg_sky_01_bk.tga
+        map textures/map/lab_games/room/south.tga
         rgbGen identity
     }
 }

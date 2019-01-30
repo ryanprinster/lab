@@ -1,3 +1,17 @@
+textures/map/lab_games/custom
+{
+    qer_editorimage textures/map/lab_games/half-wall-1.tga
+    //surfaceparm nodraw
+    //surfaceparm trans
+    surfaceparm playerclip
+    //surfaceparm nolightmap
+    {
+	map textures/map/lab_games/half-wall-1.tga
+	blendfunc blend
+	// depthfunc depthwrite
+    }
+}
+
 textures/map/lab_games/lg_logo
 {
     qer_editorimage textures/map/lab_games/lg_logo.tga
@@ -2063,14 +2077,14 @@ textures/model/mothership_d
 
 textures/map/lab_games/fake_sky
 {
-    qer_editorimage textures/map/fake_sky.tga
-    surfaceparm noimpact
-    surfaceparm nomarks
-    q3map_surfacelight 2000
-    {
-        map $whiteimage
-        rgbgen const ( 0.59 0.88 1.00 )
-    }
+    qer_editorimage textures/map/lab_games/room/ceiling.tga
+    // surfaceparm noimpact
+    // surfaceparm nomarks
+    // q3map_surfacelight 2000
+    // {
+    //     map $whiteimage
+    //     rgbgen const ( 0.59 0.88 1.00 )
+    // }
 }
 
 // FULL SKYBOX
@@ -2078,7 +2092,8 @@ textures/map/lab_games/fake_sky
 textures/map/lab_games/sky/lg_sky_01
 {
     nomipmaps
-    qer_editorimage textures/map/lab_games/sky/lg_sky_01_up.tga
+    qer_editorimage textures/map/lab_games/room/ceiling.tga
+    // qer_editorimage textures/map/lab_games/sky/lg_sky_01_up.tga
     surfaceparm noimpact
     surfaceparm nolightmap
     q3map_globaltexture
@@ -2093,7 +2108,8 @@ textures/map/lab_games/sky/lg_sky_01_up
 {
     nomipmaps
     {
-        map textures/map/lab_games/sky/lg_sky_01_up.tga
+	map textures/map/lab_games/room/ceiling.tga
+        // map textures/map/lab_games/sky/lg_sky_01_up.tga
         rgbGen identity
     }
 }
