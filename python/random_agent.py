@@ -26,6 +26,14 @@ import six
 
 import deepmind_lab
 
+""" Dependencies used for this:
+    pip uninstall numpy
+    pip install --no-cache-dir numpy==1.15.4
+    pip install --upgrade tensorflow
+    pip install --upgrade tensorflow-probability
+    pip install wrapt"""
+import tensorflow as tf
+import trfl
 
 def _action(*entries):
   return np.array(entries, dtype=np.intc)
