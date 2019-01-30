@@ -119,14 +119,19 @@ player_pos_at_reward = nil
 -- Players angle (yaw) at the time of successfully picking up a reward
 player_angle_at_reward = nil
 
+-- Counter used to assign ids to keys on the map.
+key_id_count = 1
+
 -- Whether or not the player tried the incorrect key first, 
--- and thereby whether or not the player needs to go back to the start 
--- box to initiate a new trial
+-- and thereby whether or not the player gets a reward.
 tried_wrong_key = false
 
+-- Number of times the same arm of the maze has been chosen randomly
 mazeStateStreak = 1
 
--- previous_positions = []
+-- Chooses whether the next maze has the top or bottom arm blocked.
+-- Choice is made randomly, unless the same maze has been chosen 3 
+-- times in a row already.
 function chooseNextMazeState()
 	randnum = math.random(1,2)
 	
@@ -150,36 +155,35 @@ function chooseNextMazeState()
 	end
 end
 
+
 local myPositionTrigger = positionTrigger.new()
+
+-- Called every frame. Used to update the agents position for
+-- the position triggers.
 function api:hasEpisodeFinished(_)
-	--[[print("Angle: ")
-	print(game:playerInfo().angles[1])
-	print(game:playerInfo().angles[2])
-	print(game:playerInfo().angles[3])--]]
   myPositionTrigger:update(game:playerInfo().pos)
 end
 
+-- Callback for position trigger event 
 local function _respondToEvent()
   print('RESPOND_TO_EVENT()')
   tried_wrong_key = false
-  --[[pickups_spawn:spawn{
-      classname = 'strawberry_reward',
-      origin = '750 450 30',
-      count = '5',
-  }--]]
 end
 
+-- Initialize maze state. Called ONCE.
 function api:init(params)
   
-  api._doorsOpened = {}
+  --api._doorsOpened = {}
 	
+  -- Create position trigger
   myPositionTrigger:start{
-    name = 'test trigger',
+    name = 'restart trial trigger',
     maze = positionTriggerLayerH,
     triggerWhenExit = 'L',
     callback = function() _respondToEvent() return true end,
   }
 
+  -- Set theme
   local my_theme = themes.fromTextureSet{
     textureSet = texture_sets.INVISIBLE_WALLS,
     decalFrequency = 0.0
@@ -188,10 +192,7 @@ function api:init(params)
   api._map = make_map.makeMap{
       mapName = "empty_room",
       mapEntityLayer = entityLayerH,
---      mapVariationsLayer = variationsLayer,
       pickups = {
-        A = 'apple_reward',
-        G = 'goal',
 	K = 'key',
       },
       useSkybox = true,
@@ -199,7 +200,7 @@ function api:init(params)
   }
 end
 
-
+-- Setting details for keys
 function api:createPickup(className)
   if className == 'key' then 
     return {
@@ -214,6 +215,7 @@ function api:createPickup(className)
   return pickups.defaults[className]
 end
 
+-- TODO(prinster): Not sure if this is being used right now.
 function api:nextMap()
 	-- Reset after restart
 	key_id_count = 1
@@ -221,11 +223,9 @@ function api:nextMap()
 	return self._map
 end
 
+-- Returns true if the agent can pickup a key
 function api:canPickup(spawnId, _playerId)
 	
-			print("TRIED WRONG KEY START")
-			print(tried_wrong_key)
-
 	-- If the player attempted to pickup the wrong key first, 
 	-- player now cannot pick up anything
 	if tried_wrong_key == true then
@@ -234,18 +234,11 @@ function api:canPickup(spawnId, _playerId)
 		return false
 	end
 
-
-
 	if mazeState == "lowerArm" then
 		-- Player attemps to pick up the incorrect key first
 		if tostring(spawnId) == "1" then
 			player_pos_at_reward = game:playerInfo().pos
 			player_angle_at_reward = game:playerInfo().angles[2]
-			
-			print("TRIED WRONG KEY START")
-			print(tried_wrong_key)
-			--assert(false)
-			
 			return true
 		end
 	elseif mazeState == "upperArm" then
@@ -253,15 +246,9 @@ function api:canPickup(spawnId, _playerId)
 		if tostring(spawnId) == "2" then
 			player_pos_at_reward = game:playerInfo().pos
 			player_angle_at_reward = game:playerInfo().angles[2]
-			print("TRIED WRONG KEY START")
-			print(tried_wrong_key)
-			--assert(false)
 			return true
 		end
 	end
-
-	print("TRIED WRONG KEY END")
-	print(tried_wrong_key)
 
 	-- Reward recieved, save player position
 	player_pos_at_reward = game:playerInfo().pos
@@ -269,6 +256,9 @@ function api:canPickup(spawnId, _playerId)
 	return true
 end
 
+-- Should manually override reward recieved by agents after picking up 
+-- object. TODO(prinster): Not working right now.
+--[[
 function api:rewardOverride(kwargs)
 	print("REWARD OVERRIDE")
 	--for k, v in kwargs.l
@@ -277,11 +267,11 @@ function api:rewardOverride(kwargs)
 	if tried_wrong_key == true then
 		return 0
 	end
-	return 1
+	return nil
 end
+--]]
 
 -- Assigning ids to key pickups for use in canPickup
-key_id_count = 1
 local function assignKeyIds(spawnVars_key)
 	print("CALLING ASSIGN KEY IDS")
 	assert(spawnVars_key.classname == "key", "spawnVars is not a key")
@@ -294,8 +284,6 @@ local function assignKeyIds(spawnVars_key)
 	end	
 	return spawnVars_key
 end
-
-
 
 -- Sets an individual doors initial state
 local function setDoorState(spawnVars_door, state)
@@ -313,7 +301,7 @@ local function setDoorState(spawnVars_door, state)
 end
 
 
--- Sets all the door states given a 
+-- Sets all the door states given the state of the maze.
 local function setMazeDoorState(spawnVars_door)
 	assert(spawnVars_door.classname == "func_door")
 	
@@ -335,6 +323,7 @@ local function setMazeDoorState(spawnVars_door)
 	return spawnVars_door
 end
 
+-- Set player position and orientation at the beginning of an episode.
 local function setPlayerInfo(spawnVars)
 	  -- Default origin and angle, conditional on mazeState
 	  if mazeState == "lowerArm" then
@@ -371,7 +360,8 @@ local function setPlayerInfo(spawnVars)
 	  return spawnVars
 end
 
--- Update any variables at spawn we want to be different from default values
+-- Update any variables at spawn we want to be different from default values.
+-- Called at every map restart.
 function api:updateSpawnVars(spawnVars)
   
   tried_wrong_key = true
@@ -391,6 +381,7 @@ function api:updateSpawnVars(spawnVars)
   return spawnVars
 end
 
+-- TODO(prinster): Doesn't seem to be called right now.
 function api:gameEvent(eventName,_)
 	print("GAME EVENT: " .. eventName)
 end
