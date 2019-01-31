@@ -122,9 +122,13 @@ player_angle_at_reward = nil
 -- Counter used to assign ids to keys on the map.
 key_id_count = 1
 
+-- True if the player tried the incorrect key first.
+-- Used to determine if the player recieves a reward.
+tried_wrong_key = false
+
 -- Whether or not the player tried the incorrect key first, 
 -- and thereby whether or not the player gets a reward.
-tried_wrong_key = false
+can_choose_a_key = true
 
 -- Number of times the same arm of the maze has been chosen randomly
 mazeStateStreak = 1
@@ -167,7 +171,8 @@ end
 -- Callback for position trigger event 
 local function _respondToEvent()
   print('RESPOND_TO_EVENT()')
-  tried_wrong_key = false
+  tried_wrong_key = false --shouldnt be necessary, but a precaution
+  can_choose_a_key = true
 end
 
 -- Initialize maze state. Called ONCE.
@@ -226,50 +231,43 @@ end
 -- Returns true if the agent can pickup a key
 function api:canPickup(spawnId, _playerId)
 	
+	-- Update player position at time of pickup
+	player_pos_at_reward = game:playerInfo().pos
+	player_angle_at_reward = game:playerInfo().angles[2]
+	
 	-- If the player attempted to pickup the wrong key first, 
 	-- player now cannot pick up anything
-	if tried_wrong_key == true then
-		player_pos_at_reward = game:playerInfo().pos
-		player_angle_at_reward = game:playerInfo().angles[2]
+	if can_choose_a_key == false then
 		return false
 	end
 
-	if mazeState == "lowerArm" then
-		-- Player attemps to pick up the incorrect key first
-		if tostring(spawnId) == "1" then
-			player_pos_at_reward = game:playerInfo().pos
-			player_angle_at_reward = game:playerInfo().angles[2]
-			return true
-		end
-	elseif mazeState == "upperArm" then
-		-- Player attemps to pick up the incorrect key first
-		if tostring(spawnId) == "2" then
-			player_pos_at_reward = game:playerInfo().pos
-			player_angle_at_reward = game:playerInfo().angles[2]
-			return true
-		end
+	-- Player attempts to pick up the incorrect key first
+	if (mazeState == "lowerArm" and tostring(spawnId) == "1") or 
+	   (mazeState == "upperArm" and tostring(spawnId) == "2") then
+		tried_wrong_key = true
+	   	return true
 	end
 
-	-- Reward recieved, save player position
-	player_pos_at_reward = game:playerInfo().pos
-	player_angle_at_reward = game:playerInfo().angles[2]
 	return true
 end
 
 -- Should manually override reward recieved by agents after picking up 
 -- object. TODO(prinster): Not working right now.
---[[
+
 function api:rewardOverride(kwargs)
 	print("REWARD OVERRIDE")
-	--for k, v in kwargs.l
-	--print(kwargs.location)
-	assert(false)
+	print(type(kwargs))
+	for k, v in pairs(kwargs) do
+		print("THING!")
+		print(k)
+		print(v)
+	end
 	if tried_wrong_key == true then
 		return 0
 	end
-	return nil
+	return 1
 end
---]]
+
 
 -- Assigning ids to key pickups for use in canPickup
 local function assignKeyIds(spawnVars_key)
@@ -364,7 +362,8 @@ end
 -- Called at every map restart.
 function api:updateSpawnVars(spawnVars)
   
-  tried_wrong_key = true
+  can_choose_a_key = false
+  tried_wrong_key = false
 	
   if spawnVars.classname == "key" then
   	spawnVars = assignKeyIds(spawnVars)
