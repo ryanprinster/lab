@@ -38,11 +38,71 @@ import trfl
 def _action(*entries):
   return np.array(entries, dtype=np.intc)
 
+class QNetwork:
+    def __init__(self, name, learning_rate=0.01, state_size=4, 
+                 action_size=2, hidden_size=10, batch_size=20):
+        # state inputs to the Q-network
+        with tf.variable_scope(name):
+            self.inputs_ = tf.placeholder(tf.float32, [None, state_size], name='inputs')
+            
+            # One hot encode the actions to later choose the Q-value for the action
+            self.actions_ = tf.placeholder(tf.int32, [batch_size], name='actions')
+            one_hot_actions = tf.one_hot(self.actions_, action_size)
+            
+            # Target Q values for training
+            self.targetQs_ = tf.placeholder(tf.float32, [None], name='target')
+            
+            # ReLU hidden layers
+            self.fc1 = tf.contrib.layers.fully_connected(self.inputs_, hidden_size)
+            self.fc2 = tf.contrib.layers.fully_connected(self.fc1, hidden_size)
 
-class DiscretizedRandomAgent(object):
-  """Simple agent for DeepMind Lab."""
+            # Linear output layer
+            self.output = tf.contrib.layers.fully_connected(self.fc2, action_size, 
+                                                            activation_fn=None)
+            
+            self.name = name
 
-  ACTIONS = {
+            #TRFL way
+            self.targetQs_ = tf.placeholder(tf.float32, [batch_size,action_size], name='target')
+            self.reward = tf.placeholder(tf.float32,[batch_size],name="reward")
+            self.discount = tf.constant(0.99,shape=[batch_size],dtype=tf.float32,name="discount")
+      
+            #TRFL qlearning
+            qloss, q_learning = trfl.qlearning(self.output,self.actions_,self.reward,self.discount,self.targetQs_)
+            self.loss = tf.reduce_mean(qloss)
+            self.opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
+            
+    def get_qnetwork_variables(self):
+      return [t for t in tf.trainable_variables() if t.name.startswith(self.name)]
+    """
+    def get_action(self, sess):
+      #Returns the action chosen by the QNetwork. Should be called by the MainQN
+      feed = {self.inputs_: state.reshape((1, *state.shape))}
+      Qs = sess.run(self.output, feed_dict=feed)
+      action = np.argmax(Qs)
+      return action
+    """
+
+from collections import deque
+class Memory():
+    def __init__(self, max_size = 1000):
+        self.buffer = deque(maxlen=max_size)
+    
+    def add(self, experience):
+        self.buffer.append(experience)
+            
+    def sample(self, batch_size):
+        idx = np.random.choice(np.arange(len(self.buffer)), 
+                               size=batch_size, 
+                               replace=False)
+        return [self.buffer[ii] for ii in idx]
+
+
+def get_random_action():
+
+    # Make a random action
+      #Testing actions
+    ACTIONS = {
       'look_left': _action(-20, 0, 0, 0, 0, 0, 0),
       'look_right': _action(20, 0, 0, 0, 0, 0, 0),
       'look_up': _action(0, 10, 0, 0, 0, 0, 0),
@@ -54,95 +114,137 @@ class DiscretizedRandomAgent(object):
       'fire': _action(0, 0, 0, 0, 1, 0, 0),
       'jump': _action(0, 0, 0, 0, 0, 1, 0),
       'crouch': _action(0, 0, 0, 0, 0, 0, 1)
-  }
+    }
 
-  ACTION_LIST = list(six.viewvalues(ACTIONS))
+    ACTION_LIST = list(six.viewvalues(ACTIONS))
 
-  def step(self, unused_reward, unused_image):
-    """Gets an image state and a reward, returns an action."""
-    return random.choice(DiscretizedRandomAgent.ACTION_LIST)
+    return random.choice(ACTION_LIST)
 
 
-class SpringAgent(object):
-  """A random agent using spring-like forces for its action evolution."""
+def pretrain():
+    # Make a bunch of random actions and store the experiences
+    for ii in range(pretrain_length):
+        # Uncomment the line below to watch the simulation
+        # env.render()
 
-  def __init__(self, action_spec):
-    self.action_spec = action_spec
-    print('Starting random spring agent. Action spec:', action_spec)
+        # TODO: step only returns reward
 
-    self.omega = np.array([
-        0.1,  # look left-right
-        0.1,  # look up-down
-        0.1,  # strafe left-right
-        0.1,  # forward-backward
-        0.0,  # fire
-        0.0,  # jumping
-        0.0  # crouching
-    ])
+        reward = env.step(get_random_action())
+        done = not env.is_running()
+        next_state = env.observations()['RGB_INTERLEAVED']
 
-    self.velocity_scaling = np.array([2.5, 2.5, 0.01, 0.01, 1, 1, 1])
 
-    self.indices = {a['name']: i for i, a in enumerate(self.action_spec)}
-    self.mins = np.array([a['min'] for a in self.action_spec])
-    self.maxs = np.array([a['max'] for a in self.action_spec])
-    self.reset()
+        if done:
+            # The simulation fails so no next state
+            next_state = np.zeros(state.shape)
+            # Add experience to memory
+            memory.add((state, action, reward, next_state))
 
-    self.rewards = 0
+            # Start new episode
+            env.reset()
+            # Take one random step to get the pole and cart moving
+            reward = env.step(get_random_action())
+            done = not env.is_running()
+            next_state = env.observations()['RGB_INTERLEAVED']
 
-  def critically_damped_derivative(self, t, omega, displacement, velocity):
-    r"""Critical damping for movement.
+        else:
+            # Add experience to memory
+            memory.add((state, action, reward, next_state))
+            state = next_state
 
-    I.e., x(t) = (A + Bt) \exp(-\omega t) with A = x(0), B = x'(0) + \omega x(0)
+def train():
+    # Now train with experiences
+    #saver = tf.train.Saver()
+    rewards_list = []
+    with tf.Session() as sess:
+        # Initialize variables
+        sess.run(tf.global_variables_initializer())
 
-    See
-      https://en.wikipedia.org/wiki/Damping#Critical_damping_.28.CE.B6_.3D_1.29
-    for details.
+        step = 0
+        for ep in range(1, train_episodes):
+            total_reward = 0
+            t = 0
+            while t < max_steps:
+                step += 1
+                # Uncomment this next line to watch the training
+                # env.render()
 
-    Args:
-      t: A float representing time.
-      omega: The undamped natural frequency.
-      displacement: The initial displacement at, x(0) in the above equation.
-      velocity: The initial velocity, x'(0) in the above equation
+                #update target q network
+                if step % update_target_every == 0:
+                    #TRFL way
+                    sess.run(target_network_update_ops)
+                    print("\nCopied model parameters to target network.")
 
-    Returns:
-       The velocity x'(t).
-    """
-    a = displacement
-    b = velocity + omega * displacement
-    return (b - omega * t * (a + t * b)) * np.exp(-omega * t)
+                # Explore or Exploit
+                explore_p = explore_stop + (explore_start - explore_stop)*np.exp(-decay_rate*step)
+                if explore_p > np.random.rand():
+                    # Make a random action
+                    action = get_random_action()
+                else:
+                    # Get action from Q-network
+                    feed = {mainQN.inputs_: state.reshape((1, state.shape[0]))}
+                    Qs = sess.run(mainQN.output, feed_dict=feed)
+                    action = np.argmax(Qs)
 
-  def step(self, reward, unused_frame):
-    """Gets an image state and a reward, returns an action."""
-    self.rewards += reward
+                # Take action, get new state and reward
 
-    action = (self.maxs - self.mins) * np.random.random_sample(
-        size=[len(self.action_spec)]) + self.mins
+                reward = env.step(action)
+                done = not env.is_running()
+                next_state = env.observations()['RGB_INTERLEAVED']
 
-    # Compute the 'velocity' 1 time unit after a critical damped force
-    # dragged us towards the random `action`, given our current velocity.
-    self.velocity = self.critically_damped_derivative(1, self.omega, action,
-                                                      self.velocity)
+                total_reward += reward
 
-    # Since walk and strafe are binary, we need some additional memory to
-    # smoothen the movement. Adding half of action from the last step works.
-    self.action = self.velocity / self.velocity_scaling + 0.5 * self.action
+                if done:
+                    # the episode ends so no next state
+                    next_state = np.zeros(state.shape)
+                    t = max_steps
 
-    # Fire with p = 0.01 at each step
-    self.action[self.indices['FIRE']] = int(np.random.random() > 0.99)
+                    print('Episode: {}'.format(ep),
+                          'Total reward: {}'.format(total_reward),
+                          'Training loss: {:.4f}'.format(loss),
+                          'Explore P: {:.4f}'.format(explore_p))
+                    rewards_list.append((ep, total_reward))
 
-    # Jump/crouch with p = 0.005 at each step
-    self.action[self.indices['JUMP']] = int(np.random.random() > 0.995)
-    self.action[self.indices['CROUCH']] = int(np.random.random() > 0.995)
+                    # Add experience to memory
+                    memory.add((state, action, reward, next_state))
 
-    # Clip to the valid range and convert to the right dtype
-    return self.clip_action(self.action)
+                    # Start new episode
+                    env.reset()
+                    # Take one random step to get the pole and cart moving
 
-  def clip_action(self, action):
-    return np.clip(action, self.mins, self.maxs).astype(np.intc)
+                    reward = env.step(get_random_action())
+                    done = not env.is_running()
+                    next_state = env.observations()['RGB_INTERLEAVED']
 
-  def reset(self):
-    self.velocity = np.zeros([len(self.action_spec)])
-    self.action = np.zeros([len(self.action_spec)])
+                else:
+                    # Add experience to memory
+                    memory.add((state, action, reward, next_state))
+                    state = next_state
+                    t += 1
+
+                # Sample mini-batch from memory
+                batch = memory.sample(batch_size)
+                states = np.array([each[0] for each in batch])
+                actions = np.array([each[1] for each in batch])
+                rewards = np.array([each[2] for each in batch])
+                next_states = np.array([each[3] for each in batch])
+
+                # Train network
+                #in this example (and in Deep Q Networks) use targetQN for the target values
+                #target_Qs = sess.run(mainQN.output, feed_dict={mainQN.inputs_: next_states})
+                target_Qs = sess.run(targetQN.output, feed_dict={targetQN.inputs_: next_states})
+
+                # Set target_Qs to 0 for states where episode ends
+                episode_ends = (next_states == np.zeros(states[0].shape)).all(axis=1)
+                target_Qs[episode_ends] = (0, 0)
+
+                #TRFL way, calculate td_error within TRFL
+                loss, _ = sess.run([mainQN.loss, mainQN.opt],
+                                    feed_dict={mainQN.inputs_: states,
+                                               mainQN.targetQs_: target_Qs,
+                                               mainQN.reward: rewards,
+                                               mainQN.actions_: actions})
+
 
 
 def run(length, width, height, fps, level, record, demo, demofiles, video):
@@ -160,27 +262,77 @@ def run(length, width, height, fps, level, record, demo, demofiles, video):
     config['demofiles'] = demofiles
   if video:
     config['video'] = video
-  env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)
+  env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED', 'DEBUG.CAMERA.TOP_DOWN'], config=config)
 
   env.reset()
 
-  # Starts the random spring agent. As a simpler alternative, we could also
-  # use DiscretizedRandomAgent().
-  agent = SpringAgent(env.action_spec())
+  #Testing actions
+  ACTIONS = {
+      'look_left': _action(-20, 0, 0, 0, 0, 0, 0),
+      'look_right': _action(20, 0, 0, 0, 0, 0, 0),
+      'look_up': _action(0, 10, 0, 0, 0, 0, 0),
+      'look_down': _action(0, -10, 0, 0, 0, 0, 0),
+      'strafe_left': _action(0, 0, -1, 0, 0, 0, 0),
+      'strafe_right': _action(0, 0, 1, 0, 0, 0, 0),
+      'forward': _action(0, 0, 0, 1, 0, 0, 0),
+      'backward': _action(0, 0, 0, -1, 0, 0, 0),
+      'fire': _action(0, 0, 0, 0, 1, 0, 0),
+      'jump': _action(0, 0, 0, 0, 0, 1, 0),
+      'crouch': _action(0, 0, 0, 0, 0, 0, 1)
+  }
 
-  reward = 0
+  ACTION_LIST = list(six.viewvalues(ACTIONS))
+  
+  random_action = random.choice(ACTION_LIST)
+  
+  print(env.action_spec())
 
-  for _ in six.moves.range(length):
-    if not env.is_running():
-      print('Environment stopped early')
-      env.reset()
-      agent.reset()
-    obs = env.observations()
-    action = agent.step(reward, obs['RGB_INTERLEAVED'])
-    reward = env.step(action, num_steps=1)
+  reward = env.step(random_action)
+  print(reward)
 
-  print('Finished after %i steps. Total reward received is %f'
-        % (length, agent.rewards))
+  obs = env.observations()
+  print(obs)
+    
+  pretrain()
+  train()
+
+  train_episodes = 500         # max number of episodes to learn from
+  max_steps = 200                # max steps in an episode
+  gamma = 0.99                   # future reward discount
+
+  # Exploration parameters
+  explore_start = 1.0            # exploration probability at start
+  explore_stop = 0.01            # minimum exploration probability 
+  decay_rate = 0.0002            # exponential decay rate for exploration prob
+  
+  # Network parameters
+  hidden_size = 64               # number of units in each Q-network hidden layer
+  learning_rate = 0.0001         # Q-network learning rate
+  
+  # Memory parameters
+  memory_size = 10000            # memory capacity
+  batch_size = 20                # experience mini-batch size
+  pretrain_length = batch_size   # number experiences to pretrain the memory
+  
+  #target QN
+  update_target_every = 2000
+  
+  tf.reset_default_graph()
+  mainQN = QNetwork(name='main_qn', hidden_size=hidden_size, learning_rate=learning_rate,batch_size=batch_size)
+  targetQN = QNetwork(name='target_qn', hidden_size=hidden_size, learning_rate=learning_rate,batch_size=batch_size)
+  
+  target_network_update_ops = trfl.update_target_variables(targetQN.get_qnetwork_variables(),mainQN.get_qnetwork_variables(),tau=1.0)
+  
+  # Initialize the simulation
+  env.reset()
+  # Take one random step to get the pole and cart moving
+  state, reward, done, _ = env.step(env.action_space.sample())
+  
+  print(type(state))
+
+  memory = Memory(max_size=memory_size)
+
+
 
 
 if __name__ == '__main__':
