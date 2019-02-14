@@ -40,7 +40,7 @@ import trfl
 # General Parameters
 
 train_episodes = 500           # max number of episodes to learn from
-max_steps = 200                # max steps in an episode
+max_steps = 5000               # max steps in an episode
 gamma = 0.99                   # future reward discount
 
 # Exploration parameters
@@ -170,7 +170,8 @@ def map_to_dmlab(action_index):
 def env_step(env, action):
     action = map_to_dmlab(action)
     reward = env.step(action)
-    done = not env.is_running()
+    # done = not env.is_running()
+    done = reward >= 10
     next_state = env.observations()['RGB_INTERLEAVED']
     next_state = np.reshape(next_state, [-1])
     # next_state = tf.squeeze(next_state)
@@ -196,9 +197,9 @@ def pretrain(env, memory):
             memory.add((state, action, reward, next_state))
 
             # Start new episode
-            env.reset()
+            env.reset(episode=1)
             # Take one random step to get the pole and cart moving
-            state, reward, done = env_step(env, get_random_action())
+            # state, reward, done = env_step(env, get_random_action())
 
 
         else:
@@ -222,8 +223,10 @@ def train(env, memory, state):
             t = 0
             while t < max_steps:
                 step += 1
-                # Uncomment this next line to watch the training
-                # env.render()
+
+                # End episode when hitting max_steps
+                if t == max_steps-1:
+                  done = True
 
                 #update target q network
                 if step % update_target_every == 0:
@@ -264,9 +267,9 @@ def train(env, memory, state):
                     memory.add((state, action, reward, next_state))
 
                     # Start new episode
-                    env.reset()
+                    env.reset(episode=1)
                     # Take one random step to get the pole and cart moving
-                    state, reward, done = env_step(env, get_random_action())
+                    # state, reward, done = env_step(env, get_random_action())
 
                 else:
                     # Add experience to memory
@@ -284,7 +287,6 @@ def train(env, memory, state):
                 # Train network
                 #in this example (and in Deep Q Networks) use targetQN for the target values
                 #target_Qs = sess.run(mainQN.output, feed_dict={mainQN.inputs_: next_states})
-
                 target_Qs = sess.run(targetQN.output, feed_dict={targetQN.inputs_: next_states})
 
                 # Set target_Qs to 0 for states where episode ends
@@ -298,6 +300,8 @@ def train(env, memory, state):
                                                mainQN.targetQs_: target_Qs,
                                                mainQN.reward: rewards,
                                                mainQN.actions_: actions})
+            print("Hit max_steps")
+            print(total_reward)
 
 
 tf.reset_default_graph()
@@ -329,7 +333,7 @@ def run(length, width, height, fps, level, record, demo, demofiles, video):
     config['video'] = video
   env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED', 'DEBUG.CAMERA.TOP_DOWN'], config=config)
 
-  env.reset()
+  env.reset(episode=1)
 
   #Testing actions
   ACTIONS = {
@@ -364,7 +368,7 @@ def run(length, width, height, fps, level, record, demo, demofiles, video):
   # print(tf.shape(mainQN.inputs_))
 
   # Initialize the simulation
-  env.reset()
+  env.reset(episode=1)
   # Take one random step to get the pole and cart moving
 
   memory = Memory(max_size=memory_size)
