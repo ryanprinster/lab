@@ -137,6 +137,7 @@ mazeStateStreak = 1
 -- Choice is made randomly, unless the same maze has been chosen 3 
 -- times in a row already.
 function chooseNextMazeState()
+    -- math.randomseed(os.time())
 	randnum = math.random(1,2)
 	
 	-- Don't let same maze repeat more than thrice 
