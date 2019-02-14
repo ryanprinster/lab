@@ -35,22 +35,56 @@ import deepmind_lab
 import tensorflow as tf
 import trfl
 
+
+  
+# General Parameters
+
+train_episodes = 500           # max number of episodes to learn from
+max_steps = 200                # max steps in an episode
+gamma = 0.99                   # future reward discount
+
+# Exploration parameters
+explore_start = 1.0            # exploration probability at start
+explore_stop = 0.01            # minimum exploration probability 
+decay_rate = 0.0002            # exponential decay rate for exploration prob
+
+# Network parameters
+hidden_size = 64               # number of units in each Q-network hidden layer
+learning_rate = 0.0001         # Q-network learning rate
+
+# Memory parameters
+memory_size = 10000            # memory capacity
+batch_size = 20                # experience mini-batch size
+pretrain_length = batch_size   # number experiences to pretrain the memory
+
+#target QN
+update_target_every = 2000
+
+
+
 def _action(*entries):
   return np.array(entries, dtype=np.intc)
 
 class QNetwork:
-    def __init__(self, name, learning_rate=0.01, state_size=4, 
-                 action_size=2, hidden_size=10, batch_size=20):
+    def __init__(self, name, learning_rate=0.01, state_size=80*80*3, 
+                 action_size=6, hidden_size=10, batch_size=20):
         # state inputs to the Q-network
         with tf.variable_scope(name):
             self.inputs_ = tf.placeholder(tf.float32, [None, state_size], name='inputs')
             
+            # Actions for the QNetwork:
+            # One-hot vector, with each action being as follows:
+            # (look_left, look_right, strafe_left, strafe_right, forward, backward)           
+            # These are mapped to the deepmind-lab (not one-hot) actions with the same names
+            # defined in ACTIONS
+
+
             # One hot encode the actions to later choose the Q-value for the action
             self.actions_ = tf.placeholder(tf.int32, [batch_size], name='actions')
-            one_hot_actions = tf.one_hot(self.actions_, action_size)
+            # one_hot_actions = tf.one_hot(self.actions_, action_size)
             
             # Target Q values for training
-            self.targetQs_ = tf.placeholder(tf.float32, [None], name='target')
+            # self.targetQs_ = tf.placeholder(tf.float32, [None], name='target')
             
             # ReLU hidden layers
             self.fc1 = tf.contrib.layers.fully_connected(self.inputs_, hidden_size)
@@ -99,41 +133,62 @@ class Memory():
 
 
 def get_random_action():
+    return random.randint(0,5)
 
-    # Make a random action
-      #Testing actions
-    ACTIONS = {
-      'look_left': _action(-20, 0, 0, 0, 0, 0, 0),
-      'look_right': _action(20, 0, 0, 0, 0, 0, 0),
-      'look_up': _action(0, 10, 0, 0, 0, 0, 0),
-      'look_down': _action(0, -10, 0, 0, 0, 0, 0),
-      'strafe_left': _action(0, 0, -1, 0, 0, 0, 0),
-      'strafe_right': _action(0, 0, 1, 0, 0, 0, 0),
-      'forward': _action(0, 0, 0, 1, 0, 0, 0),
-      'backward': _action(0, 0, 0, -1, 0, 0, 0),
-      'fire': _action(0, 0, 0, 0, 1, 0, 0),
-      'jump': _action(0, 0, 0, 0, 0, 1, 0),
-      'crouch': _action(0, 0, 0, 0, 0, 0, 1)
-    }
+    # # Make a random action
+    #   #Testing actions
+    # ACTIONS = {
+    #   'look_left': _action(-20, 0, 0, 0, 0, 0, 0),
+    #   'look_right': _action(20, 0, 0, 0, 0, 0, 0),
+    #   # 'look_up': _action(0, 10, 0, 0, 0, 0, 0),
+    #   # 'look_down': _action(0, -10, 0, 0, 0, 0, 0),
+    #   'strafe_left': _action(0, 0, -1, 0, 0, 0, 0),
+    #   'strafe_right': _action(0, 0, 1, 0, 0, 0, 0),
+    #   'forward': _action(0, 0, 0, 1, 0, 0, 0),
+    #   'backward': _action(0, 0, 0, -1, 0, 0, 0),
+    #   # 'fire': _action(0, 0, 0, 0, 1, 0, 0),
+    #   # 'jump': _action(0, 0, 0, 0, 0, 1, 0),
+    #   # 'crouch': _action(0, 0, 0, 0, 0, 0, 1)
+    # }
 
-    ACTION_LIST = list(six.viewvalues(ACTIONS))
+    # ACTION_LIST = list(six.viewvalues(ACTIONS))
 
-    return random.choice(ACTION_LIST)
+    # return random.choice(ACTION_LIST)
+
+def map_to_dmlab(action_index):
+    
+    DMLAB_ACTIONS = [_action(-20, 0, 0, 0, 0, 0, 0),
+    _action(20, 0, 0, 0, 0, 0, 0),
+    _action(0, 0, -1, 0, 0, 0, 0),
+    _action(0, 0, 1, 0, 0, 0, 0),
+    _action(0, 0, 0, 1, 0, 0, 0),
+    _action(0, 0, 0, -1, 0, 0, 0)]
+
+    return DMLAB_ACTIONS[action_index]
 
 
-def pretrain():
+def env_step(env, action):
+    action = map_to_dmlab(action)
+    reward = env.step(action)
+    done = not env.is_running()
+    next_state = env.observations()['RGB_INTERLEAVED']
+    next_state = np.reshape(next_state, [-1])
+    # next_state = tf.squeeze(next_state)
+    # print("NEXT STATE SHAPE:")
+    # print(next_state.shape)
+    return next_state, reward, done
+
+
+def pretrain(env, memory):
+    state, reward, done = env_step(env, get_random_action())
+
     # Make a bunch of random actions and store the experiences
     for ii in range(pretrain_length):
-        # Uncomment the line below to watch the simulation
-        # env.render()
-
-        # TODO: step only returns reward
-
-        reward = env.step(get_random_action())
-        done = not env.is_running()
-        next_state = env.observations()['RGB_INTERLEAVED']
 
 
+        action = get_random_action()
+        next_state, reward, done = env_step(env, action)
+ 
         if done:
             # The simulation fails so no next state
             next_state = np.zeros(state.shape)
@@ -143,16 +198,17 @@ def pretrain():
             # Start new episode
             env.reset()
             # Take one random step to get the pole and cart moving
-            reward = env.step(get_random_action())
-            done = not env.is_running()
-            next_state = env.observations()['RGB_INTERLEAVED']
+            state, reward, done = env_step(env, get_random_action())
+
 
         else:
             # Add experience to memory
             memory.add((state, action, reward, next_state))
             state = next_state
+    
+    return state
 
-def train():
+def train(env, memory, state):
     # Now train with experiences
     #saver = tf.train.Saver()
     rewards_list = []
@@ -188,9 +244,7 @@ def train():
 
                 # Take action, get new state and reward
 
-                reward = env.step(action)
-                done = not env.is_running()
-                next_state = env.observations()['RGB_INTERLEAVED']
+                next_state, reward, done = env_step(env, action)
 
                 total_reward += reward
 
@@ -206,15 +260,13 @@ def train():
                     rewards_list.append((ep, total_reward))
 
                     # Add experience to memory
+
                     memory.add((state, action, reward, next_state))
 
                     # Start new episode
                     env.reset()
                     # Take one random step to get the pole and cart moving
-
-                    reward = env.step(get_random_action())
-                    done = not env.is_running()
-                    next_state = env.observations()['RGB_INTERLEAVED']
+                    state, reward, done = env_step(env, get_random_action())
 
                 else:
                     # Add experience to memory
@@ -232,11 +284,13 @@ def train():
                 # Train network
                 #in this example (and in Deep Q Networks) use targetQN for the target values
                 #target_Qs = sess.run(mainQN.output, feed_dict={mainQN.inputs_: next_states})
+
                 target_Qs = sess.run(targetQN.output, feed_dict={targetQN.inputs_: next_states})
 
                 # Set target_Qs to 0 for states where episode ends
+                # TODO: This is kinda weird with the mapping. 
                 episode_ends = (next_states == np.zeros(states[0].shape)).all(axis=1)
-                target_Qs[episode_ends] = (0, 0)
+                target_Qs[episode_ends] = _action(0, 0, 0, 0, 0, 0)
 
                 #TRFL way, calculate td_error within TRFL
                 loss, _ = sess.run([mainQN.loss, mainQN.opt],
@@ -244,6 +298,17 @@ def train():
                                                mainQN.targetQs_: target_Qs,
                                                mainQN.reward: rewards,
                                                mainQN.actions_: actions})
+
+
+tf.reset_default_graph()
+mainQN = QNetwork(name='main_qn', hidden_size=hidden_size, learning_rate=learning_rate,batch_size=batch_size)
+targetQN = QNetwork(name='target_qn', hidden_size=hidden_size, learning_rate=learning_rate,batch_size=batch_size)
+
+target_network_update_ops = trfl.update_target_variables(targetQN.get_qnetwork_variables(),mainQN.get_qnetwork_variables(),tau=1.0)
+
+
+
+
 
 
 
@@ -281,56 +346,33 @@ def run(length, width, height, fps, level, record, demo, demofiles, video):
       'crouch': _action(0, 0, 0, 0, 0, 0, 1)
   }
 
-  ACTION_LIST = list(six.viewvalues(ACTIONS))
+  # ACTION_LIST = list(six.viewvalues(ACTIONS))
   
-  random_action = random.choice(ACTION_LIST)
+  # random_action = random.choice(ACTION_LIST)
   
-  print(env.action_spec())
+  # print(env.action_spec())
 
-  reward = env.step(random_action)
-  print(reward)
+  # state, reward, done = env_step(env, get_random_action())
+  # print(reward)
 
-  obs = env.observations()
-  print(obs)
+  # obs = env.observations()
+  # print(obs)
     
-  pretrain()
-  train()
+  # ACTUALLY RUNNING STUFF
 
-  train_episodes = 500         # max number of episodes to learn from
-  max_steps = 200                # max steps in an episode
-  gamma = 0.99                   # future reward discount
+  # print("INPUTS SHAPE:")
+  # print(tf.shape(mainQN.inputs_))
 
-  # Exploration parameters
-  explore_start = 1.0            # exploration probability at start
-  explore_stop = 0.01            # minimum exploration probability 
-  decay_rate = 0.0002            # exponential decay rate for exploration prob
-  
-  # Network parameters
-  hidden_size = 64               # number of units in each Q-network hidden layer
-  learning_rate = 0.0001         # Q-network learning rate
-  
-  # Memory parameters
-  memory_size = 10000            # memory capacity
-  batch_size = 20                # experience mini-batch size
-  pretrain_length = batch_size   # number experiences to pretrain the memory
-  
-  #target QN
-  update_target_every = 2000
-  
-  tf.reset_default_graph()
-  mainQN = QNetwork(name='main_qn', hidden_size=hidden_size, learning_rate=learning_rate,batch_size=batch_size)
-  targetQN = QNetwork(name='target_qn', hidden_size=hidden_size, learning_rate=learning_rate,batch_size=batch_size)
-  
-  target_network_update_ops = trfl.update_target_variables(targetQN.get_qnetwork_variables(),mainQN.get_qnetwork_variables(),tau=1.0)
-  
   # Initialize the simulation
   env.reset()
   # Take one random step to get the pole and cart moving
-  state, reward, done, _ = env.step(env.action_space.sample())
-  
-  print(type(state))
 
   memory = Memory(max_size=memory_size)
+
+
+
+  state = pretrain(env, memory)
+  train(env, memory, state)
 
 
 
