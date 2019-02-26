@@ -40,8 +40,7 @@ import trfl
   
 # General Parameters
 
-train_episodes = 500           # max number of episodes to learn from
-max_steps = 5000               # max steps in an episode
+train_episodes = 500           # max number of episodes to learn from max_steps = 5000               # max steps in an episode
 gamma = 0.99                   # future reward discount
 
 # Exploration parameters
