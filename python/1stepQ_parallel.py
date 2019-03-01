@@ -43,15 +43,15 @@ import trfl
   
 # General Parameters
 
-train_episodes = 500000          # max number of episodes to learn from
+train_episodes = 5000          # max number of episodes to learn from
                                 # This is now number of steps per agent essentially 
-max_steps = 5000               # max steps before reseting the agent
+max_steps = 2000               # max steps before reseting the agent
 gamma = 0.99                   # future reward discount
 
 # Exploration parameters
 explore_start = 1.0            # exploration probability at start
 explore_stop = 0.01            # minimum exploration probability 
-decay_rate = 0.002            # exponential decay rate for exploration prob
+decay_rate = 0.02            # exponential decay rate for exploration prob
 
 # Network parameters
 kernel_size_1 = [8,8,3]
@@ -59,16 +59,20 @@ output_filters_conv1 = 32
 output_filters_conv2 = 64     
 output_filters_conv3 = 64     
 hidden_size = 512               # number of units in each Q-network hidden layer
-learning_rate = 0.0001         # Q-network learning rate
+learning_rate = 0.000001         # Q-network learning rate
 
 # Memory parameters
 memory_size = 10000            # memory capacity
 batch_size = 4                # experience mini-batch size
 pretrain_length = batch_size   # number experiences to pretrain the memory
 
-#target QN
-update_target_every = 20000
+minibatch_size = 5
 
+
+#target QN
+update_target_every = 40
+
+state_size = (80,80,3)
 
 
 def _action(*entries):
@@ -95,7 +99,7 @@ class QNetwork:
             # self.targetQs_ = tf.placeholder(tf.float32, [None], name='target')
             
             # ReLU hidden layers
-            self.conv1 = tf.contrib.layers.conv2d(self.inputs_, output_filters_conv1, kernel_size=8, stride=4)
+            self.conv1 = tf.contrib.layers.conv2d(self.inputs_, output_filters_conv1, kernel_size=8, stride=2)
             self.conv2 = tf.contrib.layers.conv2d(self.conv1, output_filters_conv2, kernel_size=4, stride=2)
             self.conv3 = tf.contrib.layers.conv2d(self.conv2, output_filters_conv3, kernel_size=4, stride=1)
             
@@ -136,9 +140,12 @@ class QNetwork:
         Returns the action chosen by the QNetwork. 
         Should be called by the MainQN 
         """
-        feed = {mainQN.inputs_: state.reshape((1, state.shape[0], state.shape[1], state.shape[2]))}
+        feed = {mainQN.inputs_: state}
+        # feed = {mainQN.inputs_: state.reshape((batch_size, state.shape[0], state.shape[1], state.shape[2]))}
         Qs = sess.run(mainQN.output, feed_dict=feed)
-        action = np.argmax(Qs)
+        # print("Main Qs: ", Qs)
+        action = np.argmax(Qs, axis=1)
+        # action = np.ones(4)*4
         return action
 
     def get_targetQs(self, sess, next_states):
@@ -162,6 +169,7 @@ class QNetwork:
         return loss
 
 def get_random_action():
+    # return 4
     return random.randint(0,5)
 
     # DeepMind Lab defines takes actions as follows:
@@ -198,89 +206,85 @@ def index_to_english(action):
   return english_names_of_actions[action]
 
 
-
-# # Profiling Variables
-# # TODO: Make more clever profiling scheme
-# total_steps = 0
-# total_step_time = 0
-# mean_step_time = 0
-
-# total_network_updates = 0
-# total_network_update_time = 0
-# mean_network_update_time = 0
-
-# start_program = 0
-
-
 def env_worker(child_conn, level, config):
     env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)
     env.reset()
     print("Started another environment worker!")
 
     while True:
-        if child_conn.poll():
-            action = child_conn.recv()
-            package = env_step(env, action)
+        # if child_conn.poll():
+        # Note: using the above loops, without it blocks. Not sure which is fastest.
+            action, t = child_conn.recv()
+            package, reset = env_step(env, action, t)
             child_conn.send(package)
+            if reset:
+                env.reset()
 
-def env_step(env, action, num_repeats=60):
+def env_step(env, action, t, num_repeats=60):
 
-    print(index_to_english(action))
+    # print(index_to_english(action))
+    english_action = index_to_english(action)
     action = map_to_dmlab(action)
     reward = 0
     count = 0
+    reset = False
     while count < num_repeats:
 
       if not env.is_running():
-        env.reset()
+        reset = True
 
-      # Profile environment step
       reward = env.step(action)
     
       if reward != 0:
-        print("REWARD: " + str(reward))
         break #TODO
       
       count +=1
+    if reward > 0:
+        print("Action: ", english_action, " REWARD: " + str(reward), "Steps taken: ", t)
 
-    done = reward > 0
-    next_state = env.observations()['RGB_INTERLEAVED']
-
-    return (next_state, reward, done)
-
-def deal_with_end_of_episode(args):
-    state, reward, done, env, t, next_state = args
-    
-    if done or t == max_steps-1:
-        # The episode ends so no next state
-        next_state = np.zeros(state.shape)
+    # Dealing w/ end of episode
+    next_state = None
+    if reward > 0 or t == max_steps:
+        next_state = np.zeros(state_size)
         t = 0
-        # TODO: update global counter for number of episodes?
-
-        # Start new episode
-        env.reset()
-
+        reset = True
     else:
-        state = next_state
+        next_state = env.observations()['RGB_INTERLEAVED']
         t += 1
-    return state, reward, done, env, t, next_state
 
 
-def get_action_epsilon_greedy(args):
-    sess, state, step = args
+    return (next_state, reward, t), reset
+
+# def deal_with_end_of_episode(args):
+#     state, reward, done, env, t, next_state = args
+    
+#     if done or t == max_steps-1:
+#         # The episode ends so no next state
+#         next_state = np.zeros(state.shape)
+#         t = 0
+#         # TODO: update global counter for number of episodes?
+
+#         # Start new episode
+#         env.reset()
+
+#     else:
+#         state = next_state
+#         t += 1
+#     return state, reward, done, env, t, next_state
+
+
+def apply_epsilon_greedy(args):
+    action, step = args
+    
     # Explore or Exploit
     explore_p = explore_stop + (explore_start - explore_stop)*np.exp(-decay_rate*step)
     
-    print("step: ", step)
-    if step % 100 == 0:
-        print("Explore P: ", explore_p)
+    print("Explore P: ", explore_p)
 
     if explore_p > np.random.rand():
-        # Make a random action
+        # Replace action a random action
         action = get_random_action()
-    else:
-        # Get action from Q-network
-        action = mainQN.get_action(sess, state)
+    # else, action is already gotten from network
 
     return action
 
@@ -297,8 +301,13 @@ def train(level, config):
     # Initialization
     envs_list = [deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)] * batch_size
     envs_list = map(reset_envs, envs_list)
-    states_list = map(lambda env: env.observations()['RGB_INTERLEAVED'], envs_list)
+    state_list = map(lambda env: env.observations()['RGB_INTERLEAVED'], envs_list)
+    minibatch_states_list = []
+    minibatch_actions_list = []
+    minibatch_targetQs_list = []
+    minibatch_reward_list = []
 
+    print(state_list[0].shape)
 
     # Initalization of multiprocessing stuff
     pipes = [Pipe() for i in range(batch_size)]
@@ -320,10 +329,17 @@ def train(level, config):
         step = 0 # Same step at every train iteration
         total_rewards = [0] * batch_size
         t_list = [0] * batch_size
+
+        # Profiling
+        total_forwardprop = 0
+        total_action = 0
+        total_dealwendepisode = 0
+        total_train = 0
             
         for ep in range(1, train_episodes):
 
             step += 1
+            print("step: ", step)
 
             #update target q network
             if step % update_target_every == 0:
@@ -331,43 +347,60 @@ def train(level, config):
                 print("\nCopied model parameters to target network.")
 
 
-            # GPU, SERIAL
+            # GPU, PARALLEL
             # Choose action according to an epsilon greedy policy
             # Batch size would change every time due to epsilon greedy.
             # Will parallelize next.
 
-            action_list = map(get_action_epsilon_greedy, \
-                        zip([sess]*batch_size, states_list, [step]*batch_size))
+            start_forwardprop = time.time()
+
+            action_list = mainQN.get_action(sess, np.array(state_list))
+            action_list = map(apply_epsilon_greedy, zip(action_list, [step] * batch_size))
+
+            end_fowardprop = time.time()
+            total_forwardprop += end_fowardprop-start_forwardprop
+            # print("mean forwardprop time:", total_forwardprop/step)
 
 
             # CPU, PARALLEL
             # Take action in environment, get new state and reward
             for i in range(batch_size):
-                package = action_list[i]
+                package = (action_list[i], t_list[i])
                 parent_conns[i].send(package)
 
-            nextstate_reward_done_list = [parent_conns[i].recv() for i in range(batch_size)]
+            nextstate_reward_t_list = [parent_conns[i].recv() for i in range(batch_size)]
             
+
+            end_take_action = time.time()
+            total_action += end_take_action - end_fowardprop
+            # print("mean take action time: ", total_action/step)
+
+
             # Update rewards for all environments
             # [total_rewards[i] + nextstate_reward_done_list[i][1] for i in range(batch_size)]
             #  TODO: update total rewards as we go
 
-            nextstate_list, reward_list, done_list = zip(*nextstate_reward_done_list)
+            next_state_list, reward_list, t_list = zip(*nextstate_reward_t_list)
 
             # CPU, SERIAL (easily changed to parallel)
             # Inputs: state, reward, done, env, t, next_state
-            state_list, reward_list, done_list, env_list, t_list, next_state_list \
-                = zip(*map(deal_with_end_of_episode, 
-                    zip(states_list,
-                        reward_list,
-                        done_list,
-                        envs_list,
-                        t_list,
-                        nextstate_list
-                    )))
+            # state_list, reward_list, done_list, env_list, t_list, next_state_list \
+            #     = zip(*map(deal_with_end_of_episode, 
+            #         zip(state_list,
+            #             reward_list,
+            #             done_list,
+            #             envs_list,
+            #             t_list,
+            #             nextstate_list
+            #         )))
+
+            end_dealwith_endofepisode = time.time()
+            total_dealwendepisode += end_dealwith_endofepisode - end_take_action
+            # print("mean deal with end of episode time: ", total_dealwendepisode/step)
 
             # GPU, PARALLEL
-            target_Qs = targetQN.get_targetQs(sess, next_state_list)
+            target_Qs = targetQN.get_targetQs(sess, np.array(next_state_list))
+            # print("Target Qs: ", target_Qs)
 
             # Set target_Qs to 0 for states where episode ends
             # TODO: possible bug with the batch size?
@@ -376,10 +409,43 @@ def train(level, config):
 
             # GPU, PARALLEL
             # Train step
-            loss = mainQN.train_step(sess, state_list, target_Qs, reward_list, action_list)
+            if step % minibatch_size == 0 and step != 0:
+                loss = mainQN.train_step(sess, minibatch_states_list, minibatch_targetQs_list, minibatch_reward_list, minibatch_actions_list)
+                minibatch_states_list = []
+                minibatch_actions_list = []
+                minibatch_targetQs_list = []
+                minibatch_reward_list = []
+                # need to do for rewrards , actions, arget_qs
+            else:
+                if len(minibatch_states_list) == 0:
+                    minibatch_states_list = state_list
+                    minibatch_actions_list = action_list
+                    minibatch_targetQs_list = target_Qs
+                    minibatch_reward_list = reward_list
+                else:
+                    minibatch_states_list = np.concatenate((state_list, minibatch_states_list), axis=0)
+                    minibatch_actions_list = np.concatenate((action_list, minibatch_actions_list), axis=0)
+                    minibatch_targetQs_list = np.concatenate((target_Qs, minibatch_targetQs_list), axis=0)
+                    minibatch_reward_list = np.concatenate((reward_list, minibatch_reward_list), axis=0)
 
-            if ep % 100 == 0:
-                print("Ep: ", ep, ", Loss: ", loss)
+
+            state_list = next_state_list
+
+            # loss = mainQN.train_step(sess, state_list, target_Qs, reward_list, action_list)
+
+            # state_list = next_state_list
+
+            end_target_train = time.time()
+            total_train += end_target_train - end_dealwith_endofepisode
+            # print("mean train_time: ", total_train/step)
+            
+            # print("total forwardprop time:", total_forwardprop)
+            # print("total take action time: ", total_action)
+            # print("total deal with end of episode time: ", total_dealwendepisode)
+            # print("total train_time: ", total_train)
+
+            # if ep % 100 == 0:
+            #     print("Ep: ", ep, ", Loss: ", loss)
 
 
         # print("Saving...")
@@ -391,7 +457,7 @@ def train(level, config):
 
 tf.reset_default_graph()
 
-mainQN = QNetwork(name='main_qn', hidden_size=hidden_size, learning_rate=learning_rate,batch_size=batch_size)
+mainQN = QNetwork(name='main_qn', hidden_size=hidden_size, learning_rate=learning_rate,batch_size=batch_size*(minibatch_size-1))
 targetQN = QNetwork(name='target_qn', hidden_size=hidden_size, learning_rate=learning_rate,batch_size=batch_size)
 target_network_update_ops = trfl.update_target_variables(targetQN.get_qnetwork_variables(),mainQN.get_qnetwork_variables(),tau=1.0)
 

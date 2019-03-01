@@ -27,6 +27,10 @@ local MAP_ENTITIES = [[
 ****
 ]]
 
+-- *******
+-- *P   G*
+-- *******
+
 
 
 -- local function getRandomRewardStart()
@@ -85,16 +89,19 @@ startTime = os.clock()
 function api:rewardOverride(kwargs)
     -- hasEpisodeFinishedFlag = true
     now = os.clock()
-    newScore = kwargs['score']/(now-startTime)
-    print("REWARD: " .. newScore)
+    newScore = 1000*kwargs['score']/number_of_frames_elapsed
+    -- if now-startTime > 3 then
+    --   newScore = 0
+    -- end
+    -- print("REWARD: " .. newScore)
     startTime = os.clock()
-    return newScore*10
+    return newScore
 end
 
 -- hasEpisodeFinishedFlag = false
-elapsedTimeInSeconds = .000001
+number_of_frames_elapsed = 0
 function api:hasEpisodeFinished(timeInSeconds)
-  elapsedTimeInSeconds = timeInSeconds
+  number_of_frames_elapsed = number_of_frames_elapsed + 1
   return false
 end
 
@@ -112,6 +119,7 @@ function api:nextMap()
 end
 
 function api:updateSpawnVars(spawnVars)
+  number_of_frames_elapsed = 0
   _respondToEvent()
   if spawnVars.classname == "info_player_start" then
     -- Spawn facing East.

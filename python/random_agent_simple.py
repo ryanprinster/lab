@@ -82,28 +82,41 @@ def run(width, height, level_script, frame_count):
   """Spins up an environment and runs the random agent."""
   config = {'width': str(width), 'height': str(height)}
 
-  num_processes = 10
+  env = deepmind_lab.Lab(level_script, ['RGB_INTERLEAVED'], config=config)
 
-  pipes = [Pipe() for i in range(num_processes)]
-  parent_conns, child_conns = zip(*pipes)
+  print("starting env loop thing")
+  import time
+  start = time.time()
+  for i in range(10):
+    env.reset()
+  end = time.time()
+
+  print("Time for 100 resets: ", end-start)
+
+
+
+  # num_processes = 10
+
+  # pipes = [Pipe() for i in range(num_processes)]
+  # parent_conns, child_conns = zip(*pipes)
   
-  processes = [Process(target=worker, 
-              args=(child_conns[i],level_script, config, frame_count)) 
-              for i in range(num_processes)]
+  # processes = [Process(target=worker, 
+  #             args=(child_conns[i],level_script, config, frame_count)) 
+  #             for i in range(num_processes)]
 
-  # Initialize
-  for i in range(len(processes)):
-      processes[i].start()
-      package = (1, i)
-      parent_conns[i].send(package)
+  # # Initialize
+  # for i in range(len(processes)):
+  #     processes[i].start()
+  #     package = (1, i)
+  #     parent_conns[i].send(package)
 
-  responses = [parent_conns[i].recv() for i in range(num_processes)]
+  # responses = [parent_conns[i].recv() for i in range(num_processes)]
   
-  print(responses)
+  # print(responses)
 
-  for i in range(num_processes):
-    package = responses[i]
-    parent_conns[i].send(package)
+  # for i in range(num_processes):
+  #   package = responses[i]
+  #   parent_conns[i].send(package)
 
   
 
