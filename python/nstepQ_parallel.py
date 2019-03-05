@@ -26,6 +26,7 @@ import numpy as np
 import six
 import time
 from multiprocessing import Process, Queue, Pipe
+import copy
 
 
 import deepmind_lab
@@ -45,8 +46,8 @@ import trfl
 
 train_episodes = 5000          # max number of episodes to learn from
                                 # This is now number of steps per agent essentially 
-max_steps = 2               # max steps before reseting the agent
-gamma = 0.99                   # future reward discount
+max_steps = 10               # max steps before reseting the agent
+gamma = 0.8                   # future reward discount
 
 # Exploration parameters
 explore_start = 1.0            # exploration probability at start
@@ -365,6 +366,7 @@ def train(level, config):
     envs_list = [deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)] * num_envs
     envs_list = map(reset_envs, envs_list)
     state_list = map(lambda env: env.observations()['RGB_INTERLEAVED'], envs_list)
+    next_state_list = copy.deepcopy(state_list)
     # minibatch_states_list = []
     # minibatch_actions_list = []
     # minibatch_targetQs_list = []
@@ -422,6 +424,9 @@ def train(level, config):
             n_steps_parallel = [[] for i in range(num_envs)]
 
             for i in range(n):
+
+                state_list = next_state_list
+
                 step += 1
                 print("step: ", step)
 
@@ -453,6 +458,8 @@ def train(level, config):
                 # Accumulate n-step experience
                 for i in range(num_envs):
                     n_steps_parallel[i].append(env_tuples[i])
+
+
             
             # Rollout rewards
             rolled_tuples = map(rollout, zip(n_steps_parallel, [sess] * num_envs, [targetQN] * num_envs))
@@ -483,7 +490,6 @@ def train(level, config):
             loss = mainQN.train_step(sess, state_list, target_Qs, reward_list, action_list)
 
 
-            state_list = next_state_list
 
             # loss = mainQN.train_step(sess, state_list, target_Qs, reward_list, action_list)
 
