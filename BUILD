@@ -1012,6 +1012,15 @@ py_binary(
     deps = ["@six_archive//:six"],
 )
 
+py_binary(
+    name = "python_nstepQ_parallel",
+    srcs = ["python/nstepQ_parallel.py"],
+    data = [":deepmind_lab.so"],
+    main = "python/nstepQ_parallel.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
+
 
 
 LOAD_TEST_SCRIPTS = [
