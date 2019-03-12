@@ -28,7 +28,10 @@ from multiprocessing import Process, Queue, Pipe
 
 import deepmind_lab
 
+gamma = .99
+
 def is_terminal(state):
+    # Currently, is terminal if and only if you recieve a reward
 
 
 def actor_learner_thread(child_conn, level_script, config):
@@ -40,8 +43,17 @@ def actor_learner_thread(child_conn, level_script, config):
         t_start = t
         state = env.observations()['RGB_INTERLEAVED']
         while not is_terminal(state) or t-t_start == t_max:
+            reward, next_state = env_step()
+            t += 1
+            T += 1
+        R = 0 if is_terminal(state) else valNetwork(state) #Bootstrap?
+        for i in range(t-1, t_start, -1):
+            R = reward[i] + gamma*R #accumulate these
+            # Accumulate gradients
+            d_theta += 
+            d_theta_v += 
+        child_conn.send(d_theta, d_theta_v)
 
- 
 
 
 def run(width, height, level_script, frame_count):

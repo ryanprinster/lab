@@ -27,6 +27,7 @@ import six
 import time
 from multiprocessing import Process, Queue, Pipe
 import copy
+from pprint import pprint
 
 
 import deepmind_lab
@@ -46,7 +47,7 @@ import trfl
 
 train_episodes = 5000          # max number of episodes to learn from
                                 # This is now number of steps per agent essentially 
-max_steps = 10               # max steps before reseting the agent
+max_steps = 5               # max steps before reseting the agent
 gamma = 0.8                   # future reward discount
 
 # Exploration parameters
@@ -60,7 +61,7 @@ output_filters_conv1 = 32
 output_filters_conv2 = 64     
 output_filters_conv3 = 64     
 hidden_size = 512               # number of units in each Q-network hidden layer
-learning_rate = 0.000001         # Q-network learning rate
+learning_rate = 0.01         # Q-network learning rate
 
 # Memory parameters
 memory_size = 10000            # memory capacity
@@ -68,24 +69,27 @@ num_envs = batch_size = 4                # experience mini-batch size
 pretrain_length = batch_size   # number experiences to pretrain the memory
 
 # Training parameters
-n = 20 # n in n-step updating
+n = 5 # n in n-step updating
+entropy_reg_term = .01 #regularization term for entropy
+normalise_entropy = False # when true normalizes entropy to be in [-1, 0] to be more invariant to different size action spaces
 
 #target QN
-update_target_every = 40
+update_target_every = 10
 state_size = (80,80,3)
+action_size = 6
 
 
 def _action(*entries):
   return np.array(entries, dtype=np.intc)
 
-class QNetwork:
-    def __init__(self, name, learning_rate=0.01, state_size=[80,80,3], 
-                 action_size=6, hidden_size=10, batch_size=20):
+class ActorCriticNetwork:
+    def __init__(self, name):
         # state inputs to the Q-network
         with tf.variable_scope(name):
+            # self.inputs_ = tf.placeholder(tf.float32, [n, num_envs, state_size[0], state_size[1], state_size[2]], name='inputs')
+            # self.inputs_flat = tf.reshape(self.inputs_, [n * num_envs, state_size[0], state_size[1], state_size[2]])
+
             self.inputs_ = tf.placeholder(tf.float32, [None, state_size[0], state_size[1], state_size[2]], name='inputs')
-            
-            # self.batch_size = tf.shape(self.inputs_)[0]
 
             # Actions for the QNetwork:
             # One-hot vector, with each action being as follows:
@@ -94,11 +98,7 @@ class QNetwork:
             # defined in ACTIONS
 
             # One hot encode the actions to later choose the Q-value for the action
-            self.actions_ = tf.placeholder(tf.int32, [None], name='actions')
-            # one_hot_actions = tf.one_hot(self.actions_, action_size)
-            
-            # Target Q values for training
-            # self.targetQs_ = tf.placeholder(tf.float32, [None], name='target')
+            self.actions_ = tf.placeholder(tf.int32, [n, num_envs], name='actions')
             
             # ReLU hidden layers
             self.conv1 = tf.contrib.layers.conv2d(self.inputs_, output_filters_conv1, kernel_size=8, stride=2)
@@ -109,67 +109,90 @@ class QNetwork:
               tf.reshape(self.conv3, [-1, self.conv3.shape[1]*self.conv3.shape[2]*self.conv3.shape[3]]), \
               hidden_size)
 
-            # Linear output layer
-            self.output = tf.contrib.layers.fully_connected(self.fc1, action_size, 
-                                                            activation_fn=None)
-            
-            # tf.summary.histogram("output", self.output)
 
-            print("Network shapes:")
-            print(self.conv1.shape)
-            print(self.conv2.shape)
-            print(self.conv3.shape)
-            print(self.fc1.shape)
-            print(self.output.shape)
+            # Value function - Linear output layer
+            self.value_output = tf.contrib.layers.fully_connected(self.fc1, 1, 
+                                                            activation_fn=None)
+
+            # Policy - softmax output layer
+            self.policy_logits = tf.contrib.layers.fully_connected(self.fc1, action_size, activation_fn=None)
+            self.policy_output = tf.contrib.layers.softmax(self.policy_logits)
+
 
             self.name = name
 
-            #TRFL way
-            self.targetQs_ = tf.placeholder(tf.float32, [None,action_size], name='target')
-            self.reward = tf.placeholder(tf.float32,[None],name="reward")
-            self.discount = tf.fill([tf.shape(self.inputs_)[0]], gamma)
-            # self.discount = tf.constant(gamma,shape=[None],dtype=tf.float32,name="discount")
-      
+            self.rewards = tf.placeholder(tf.float32,[n, num_envs],name="rewards")
+            self.discounts = tf.placeholder(tf.float32,[n, num_envs],name="discounts")
+            self.initial_Rs = tf.placeholder(tf.float32, [num_envs], name="initial_Rs")
+
+            # Used for trfl stuff
+            self.value_output_unflat = tf.reshape(self.value_output, [n, num_envs])
+            self.policy_logits_unflat = tf.reshape(self.policy_logits, [n, num_envs, -1])
+
+            print("Network shapes:")
+            print("actions_: ", self.actions_.shape)
+            print("conv1: ", self.conv1.shape)
+            print("conv2: ", self.conv2.shape)
+            print("conv3: ", self.conv3.shape)
+            print("fc1: ", self.fc1.shape)
+            print("value_output: ", self.value_output.shape)
+            print("policy_logits: ", self.policy_logits.shape)
+            print("policy_output: ", self.policy_output.shape)
+
+            print("policy_logits_unflat: ", self.policy_logits_unflat.shape)
+            print("value_output_unflat: ", self.value_output_unflat.shape)
+
             #TRFL qlearning
-            qloss, q_learning = trfl.qlearning(self.output,self.actions_,self.reward,self.discount,self.targetQs_)
-            self.loss = tf.reduce_mean(qloss)
+            a2c_loss, extra = trfl.sequence_advantage_actor_critic_loss(
+                policy_logits = self.policy_logits_unflat,
+                baseline_values = self.value_output_unflat, 
+                actions = self.actions_, 
+                rewards = self.rewards,
+                pcontinues = self.discounts, 
+                bootstrap_value = self.initial_Rs,
+                entropy_cost = entropy_reg_term,
+                normalise_entropy = normalise_entropy)
+            self.loss = tf.reduce_mean(a2c_loss)
+            self.extra = extra
             self.opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
             
-    def get_qnetwork_variables(self):
-        return [t for t in tf.trainable_variables() if t.name.startswith(self.name)]
-    
-    def get_action(self, sess, state):
+    def get_action(self, sess, state, t_list, print_policies=False):
         """ 
         Returns the action chosen by the QNetwork. 
-        Should be called by the MainQN 
+        Should be called by the mainA2C 
         """
-        feed = {mainQN.inputs_: state}
-        # feed = {mainQN.inputs_: state.reshape((batch_size, state.shape[0], state.shape[1], state.shape[2]))}
-        Qs = sess.run(mainQN.output, feed_dict=feed)
-        # print("Main Qs: ", Qs)
-        action = np.argmax(Qs, axis=1)
-        # action = np.ones(4)*4
-        return action
-
-    def get_targetQs(self, sess, next_states):
+        feed = {mainA2C.inputs_: np.reshape(state, [-1, state_size[0], state_size[1], state_size[2]])}
+        policies, values = sess.run([mainA2C.policy_output, mainA2C.value_output], feed_dict=feed)
+        if print_policies:
+            pprint(zip(policies, t_list))
+        actions = [np.random.choice(len(policy), p=policy) for policy in policies]
+        # print("actions: ", actions)
+        return actions
+    
+    def get_value(self, sess, state):
         """ 
-        Returns the target Qs
-        Should be called by targetQN 
+        Returns the value of a state by the QNetwork. 
+        Should be called by the mainA2C 
         """
-        return sess.run(self.output, feed_dict={self.inputs_: next_states})
+        feed = {mainA2C.inputs_: np.reshape(state, [-1, state_size[0], state_size[1], state_size[2]])}
+        # feed = {mainA2C.inputs_: state.reshape((batch_size, state.shape[0], state.shape[1], state.shape[2]))}
+        policies, values = sess.run([mainA2C.policy_output, mainA2C.value_output], feed_dict=feed)
+        # print("values: ", values)
+        return values
 
-    def train_step(self, sess, states, target_Qs, rewards, actions):
+    def train_step(self, sess, states, actions, rewards, discounts, initial_Rs):
         """
         Runs a train step
         Returns the loss
-        Should be called by MainQN
+        Should be called by mainA2C
         """
-        loss, _ = sess.run([self.loss, self.opt],
-                    feed_dict={self.inputs_: states,
-                               self.targetQs_: target_Qs,
-                               self.reward: rewards,
-                               self.actions_: actions})
-        return loss
+        loss, extra, opt = sess.run([self.loss, self.extra, self.opt], 
+                    feed_dict={self.inputs_: np.reshape(states, [-1, state_size[0], state_size[1], state_size[2]]),
+                                self.actions_: np.reshape(actions, [n, num_envs]),
+                                self.rewards: np.reshape(rewards, [n, num_envs]),
+                                self.discounts: np.reshape(discounts, [n, num_envs]),
+                                self.initial_Rs: initial_Rs})
+        return loss, extra
 
 
 def get_random_action():
@@ -222,7 +245,6 @@ def env_worker(child_conn, level, config):
             package = env_step(env, action, t)
             child_conn.send(package)
  
-
 def env_step(env, action, t, num_repeats=60):
 
     # print(index_to_english(action))
@@ -263,9 +285,7 @@ def env_step(env, action, t, num_repeats=60):
         next_state = env.observations()['RGB_INTERLEAVED']
         t += 1
 
-
     return (next_state, reward, t, episode_done)
-
 
 def apply_epsilon_greedy(args):
     action, step = args
@@ -288,82 +308,27 @@ def reset_envs(env):
     env.reset()
     return env
 
-def split(a):
-    # Split after non-zero values. Used to get partial rollouts. 
-    a = list(a)
-    big_array = []
-    small_array = []
-    for i in a:
-        small_array.append(i)
-        if i != 0:
-            big_array.append(small_array)
-            small_array = []
-
-    return big_array
-
-def partial_rollout(r):
-    r.reverse()
-    R = r[0]
-    rollout_rewards = [R]
-    for i in range(1,len(r)):
-        R = r[i] + gamma*R
-        rollout_rewards.append(R)
-
-    return reversed(rollout_rewards)
-
-
-def rollout(args):
-    tuple_list, sess, targetQN = args
-    # Note: this is assuming that there are rewards ONLY at the terminal state.
-    # TODO: change this code to use episode_done_list
-    state_list, action_list, next_state_list, reward_list, t_list, episode_done_list = zip(*tuple_list)
-    reversed_t_list = reversed(t_list)
+def get_bootstrap(next_state, reward, sess, mainA2C):
+    # Getting R to use as initial condition. Essentially doing the whole target function thing. 
     
-    # Use target Q for the rest of the experience
-    if reward_list[-1] == 0:
-        next_state_data = np.expand_dims(np.array(next_state_list[-1]), axis=0)
-        target_Q = np.max(targetQN.get_targetQs(sess, next_state_data))
-        tmp_list = list(reward_list)
-        tmp_list[-1] = target_Q
-        reward_list = tuple(tmp_list)
-    print("reward_list before rollout: ", reward_list)
+    if reward == 0:
+        next_state_data = np.expand_dims(np.array(next_state), axis=0)
+        bootstrapped_R = np.max(mainA2C.get_value(sess, next_state_data)) # Shouldnt need to be a max
+    else:
+        bootstrapped_R = 0
 
-
-    # Split into other little list to rollout
-    reward_lists_to_rollout = split(reward_list)
-
-    # Rollout each list individually
-    rolledout_reward_list = []
-    for r in reward_lists_to_rollout:
-        rolledout_reward_list.extend(partial_rollout(r))
-
-    print("rolledout_reward_list: ", rolledout_reward_list)
-    return zip(state_list, action_list, next_state_list, rolledout_reward_list, t_list, episode_done_list)
-
-
+    return bootstrapped_R
 
 
 def train(level, config):
     # Now train with experiences
 
     # TODO: this is not used right now. Discount rewards
-    # reward_list = [[]] * batch_size
     # Initialization
     envs_list = [deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)] * num_envs
     envs_list = map(reset_envs, envs_list)
     state_list = map(lambda env: env.observations()['RGB_INTERLEAVED'], envs_list)
     next_state_list = copy.deepcopy(state_list)
-    # minibatch_states_list = []
-    # minibatch_actions_list = []
-    # minibatch_targetQs_list = []
-    # minibatch_reward_list = []
-
-    # everything_list = [[] for i in range(num_envs)]
-
-
-    # accumulated_state_action_targetQs_reward_list = [[] * num_envs]
-
-    # print(state_list[0].shape)
 
     # Initalization of multiprocessing stuff
     pipes = [Pipe() for i in range(num_envs)]
@@ -383,45 +348,23 @@ def train(level, config):
         # train_writer = tf.summary.FileWriter( '/mnt/hgfs/ryanprinster/lab/tensorboard', sess.graph)
 
         step = 0 # Same step at every train iteration
-        # total_rewards = [0] * num_envs
         t_list = [0 for i in range(num_envs)]
-        # Profiling
-        total_forwardprop = 0
-        total_action = 0
-        total_dealwendepisode = 0
-        total_train = 0
             
         for ep in range(1, train_episodes):
 
-            #update target q network
-            if step % update_target_every == 0:
-                sess.run(target_network_update_ops)
-                print("\nCopied model parameters to target network.")
-
-
-            # GPU, PARALLEL
-            # Choose action according to an epsilon greedy policy
-            # Batch size would change every time due to epsilon greedy.
-            # Will parallelize next.
-
+            # n-steps
             n_steps_parallel = [[] for i in range(num_envs)]
-
             for i in range(n):
-
                 state_list = next_state_list
 
                 step += 1
                 print("step: ", step)
-
-                # start_forwardprop = time.time()
-
-                action_list = mainQN.get_action(sess, np.array(state_list))
-                action_list = map(apply_epsilon_greedy, zip(action_list, [step] * num_envs))
-
-                # end_fowardprop = time.time()
-                # total_forwardprop += end_fowardprop-start_forwardprop
-                # # print("mean forwardprop time:", total_forwardprop/step)
-
+                print_policies = True
+                # if step % 10 == 0:
+                #     print_policies = True
+                # GPU, PARALLEL
+                action_list = mainA2C.get_action(sess, np.array(state_list), t_list, print_policies)
+                # action_list = map(apply_epsilon_greedy, zip(action_list, [step] * num_envs))
 
                 # CPU, PARALLEL
                 # Take action in environment, get new state and reward
@@ -431,76 +374,53 @@ def train(level, config):
 
                 nextstate_reward_t_episodedone_list = [parent_conns[i].recv() for i in range(num_envs)]
                 next_state_list, reward_list, t_list, episode_done_list = zip(*nextstate_reward_t_episodedone_list)
-                
-                print("next_state_list: ", np.array(next_state_list).shape)
-                print("reward_list: ", np.array(reward_list).shape)
-                print("t_list: ", np.array(t_list).shape)
-                print("episode_done_list: ", np.array(episode_done_list).shape)
-                print("state_list: ", np.array(state_list).shape)
-                print("action_list: ", np.array(action_list).shape)
-
 
                 env_tuples = zip(state_list, action_list, next_state_list, reward_list, t_list, episode_done_list)
-
-
-
-                # Data that will actually be used for training at this step
 
                 # Accumulate n-step experience
                 for i in range(num_envs):
                     n_steps_parallel[i].append(env_tuples[i])
 
 
-            
-            # Rollout rewards
-            rolled_tuples = map(rollout, zip(n_steps_parallel, [sess] * num_envs, [targetQN] * num_envs))
+            # More accumulation
             n_steps_train_data = []
-            for rolled_tuple in rolled_tuples:
-                n_steps_train_data.extend(rolled_tuple)
+            for e in n_steps_parallel:
+                n_steps_train_data.extend(e)
+
             state_list, action_list, next_state_list, reward_list, t_list, episode_done_list = zip(*n_steps_train_data)
 
-            print("AFTER ROLLOUT:")
-            print("next_state_list: ", np.array(next_state_list).shape)
-            print("reward_list: ", np.array(reward_list).shape)
-            print("t_list: ", np.array(t_list).shape)
-            print("episode_done_list: ", np.array(episode_done_list).shape)
-            print("state_list: ", np.array(state_list).shape)
-            print("action_list: ", np.array(action_list).shape)
+            # Getting bootstrap values. Ew.
+            next_state_list_reshape = np.reshape(next_state_list, [n, num_envs, state_size[0], state_size[1], state_size[2]])
+            reward_list_reshape = np.reshape(reward_list, [n, num_envs])
+            episode_done_list = np.reshape(episode_done_list, [n, num_envs])
+            bootstrap_vals_list = []
+            for i in range(num_envs):
+                bootstrapped_val = get_bootstrap(next_state_list_reshape[-1][i], reward_list_reshape[-1][i], sess, mainA2C)
+                bootstrap_vals_list.append(bootstrapped_val)
 
+            # Getting discounts at different timesteps.
+            vec_f = np.vectorize(lambda x: 0 if x != 0 else gamma)
+            pcontinues_list = np.array([vec_f(i) for i in reward_list])
+            pcontinues_list = np.reshape(pcontinues_list, [num_envs, n])
 
-            # end_take_action = time.time()
-            # total_action += end_take_action - end_fowardprop
+            # reward_list = np.array([[0,1] for i in range(n)])
+            # reward_list_reshape = reward_list #np.reshape(reward_list, [num_envs, n])
+            # pcontinues_list = np.ones((num_envs, n))
+            print("rewards: ", reward_list)
+            print("rewards reshaped: ", reward_list_reshape)
+            print("pcontinues_list: ", np.reshape(pcontinues_list, [n, num_envs]))
+            print("bootstrap_vals_list: ", bootstrap_vals_list)
 
-
-            # GPU, PARALLEL
-            # Set target_Qs to 0 for states where episode ends
-            target_Qs = targetQN.get_targetQs(sess, np.array(next_state_list))
-            for i in range(len(target_Qs)):
-                if episode_done_list[i] == True:
-                    target_Qs[i] = _action(0, 0, 0, 0, 0, 0)
-
-            # GPU, PARALLEL
             # Train step
-
-            loss = mainQN.train_step(sess, state_list, target_Qs, reward_list, action_list)
-
-
-
-            # loss = mainQN.train_step(sess, state_list, target_Qs, reward_list, action_list)
-
-            # state_list = next_state_list
-
-            # end_target_train = time.time()
-            # total_train += end_target_train - end_take_action
-            # print("mean train_time: ", total_train/step)
+            loss, extra = mainA2C.train_step(sess, state_list, action_list, reward_list, pcontinues_list, bootstrap_vals_list)
             
-            # print("total forwardprop time:", total_forwardprop)
-            # print("total take action time: ", total_action)
-            # print("total deal with end of episode time: ", total_dealwendepisode)
-            # print("total train_time: ", total_train)
-
-            # if ep % 100 == 0:
-            #     print("Ep: ", ep, ", Loss: ", loss)
+            print("total loss: ", loss)
+            print("entropy: ", extra.entropy)
+            print("entropy_loss: ", extra.entropy_loss)
+            print("baseline_loss: ", extra.baseline_loss)
+            print("policy_gradient_loss: ", extra.policy_gradient_loss)
+            print("advantages: ", np.reshape(extra.advantages, [n, num_envs]))
+            print("discounted_returns: ", np.reshape(extra.discounted_returns, [n, num_envs]))
 
 
         # print("Saving...")
@@ -511,13 +431,7 @@ def train(level, config):
 
 
 tf.reset_default_graph()
-
-mainQN = QNetwork(name='main_qn', hidden_size=hidden_size, learning_rate=learning_rate)
-targetQN = QNetwork(name='target_qn', hidden_size=hidden_size, learning_rate=0)
-target_network_update_ops = trfl.update_target_variables(targetQN.get_qnetwork_variables(),mainQN.get_qnetwork_variables(),tau=1.0)
-
-
-
+mainA2C = ActorCriticNetwork(name='main_acn')
 
 
 def run(length, width, height, fps, level, record, demo, demofiles, video):
@@ -535,9 +449,6 @@ def run(length, width, height, fps, level, record, demo, demofiles, video):
     config['demofiles'] = demofiles
   if video:
     config['video'] = video
-  # env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED', 'DEBUG.CAMERA.TOP_DOWN'], config=config)
-
-  # env.reset()
 
   #Testing actions
   ACTIONS = {
@@ -554,27 +465,9 @@ def run(length, width, height, fps, level, record, demo, demofiles, video):
       'crouch': _action(0, 0, 0, 0, 0, 0, 1)
   }
 
-  # ACTION_LIST = list(six.viewvalues(ACTIONS))
-  
-  # random_action = random.choice(ACTION_LIST)
-  
-  # print(env.action_spec())
 
-  # state, reward, done = env_step(env, get_random_action())
-  # print(reward)
-
-  # obs = env.observations()
-  # print(obs)
-    
-  # ACTUALLY RUNNING STUFF
-
-  # print("INPUTS SHAPE:")
-  # print(tf.shape(mainQN.inputs_))
-
-  # Initialize the simulation
 
   train(level, config)
-
 
 
 

@@ -1021,6 +1021,15 @@ py_binary(
     deps = ["@six_archive//:six"],
 )
 
+py_binary(
+    name = "python_a2c",
+    srcs = ["python/a2c.py"],
+    data = [":deepmind_lab.so"],
+    main = "python/a2c.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
+
 
 
 LOAD_TEST_SCRIPTS = [
