@@ -61,20 +61,20 @@ output_filters_conv1 = 32
 output_filters_conv2 = 64     
 output_filters_conv3 = 64     
 hidden_size = 512               # number of units in each Q-network hidden layer
-learning_rate = 0.01         # Q-network learning rate
+learning_rate = 0.0001         # Q-network learning rate
 
 # Memory parameters
-memory_size = 10000            # memory capacity
+# memory_size = 10000            # memory capacity
 num_envs = batch_size = 4                # experience mini-batch size
 pretrain_length = batch_size   # number experiences to pretrain the memory
 
 # Training parameters
 n = 5 # n in n-step updating
-entropy_reg_term = .01 #regularization term for entropy
+entropy_reg_term = 1 #1000000. #regularization term for entropy
 normalise_entropy = False # when true normalizes entropy to be in [-1, 0] to be more invariant to different size action spaces
 
 #target QN
-update_target_every = 10
+# update_target_every = 10
 state_size = (80,80,3)
 action_size = 6
 
@@ -90,7 +90,6 @@ class ActorCriticNetwork:
             # self.inputs_flat = tf.reshape(self.inputs_, [n * num_envs, state_size[0], state_size[1], state_size[2]])
 
             self.inputs_ = tf.placeholder(tf.float32, [None, state_size[0], state_size[1], state_size[2]], name='inputs')
-
             # Actions for the QNetwork:
             # One-hot vector, with each action being as follows:
             # (look_left, look_right, strafe_left, strafe_right, forward, backward)           
@@ -166,6 +165,7 @@ class ActorCriticNetwork:
         if print_policies:
             pprint(zip(policies, t_list))
         actions = [np.random.choice(len(policy), p=policy) for policy in policies]
+        print("actions chosen: ", actions)
         # print("actions: ", actions)
         return actions
     
@@ -186,11 +186,12 @@ class ActorCriticNetwork:
         Returns the loss
         Should be called by mainA2C
         """
+
         loss, extra, opt = sess.run([self.loss, self.extra, self.opt], 
-                    feed_dict={self.inputs_: np.reshape(states, [-1, state_size[0], state_size[1], state_size[2]]),
-                                self.actions_: np.reshape(actions, [n, num_envs]),
-                                self.rewards: np.reshape(rewards, [n, num_envs]),
-                                self.discounts: np.reshape(discounts, [n, num_envs]),
+                    feed_dict={self.inputs_: np.reshape(states, [-1, 80, 80, 3]),
+                                self.actions_: actions,
+                                self.rewards: rewards,
+                                self.discounts: discounts,
                                 self.initial_Rs: initial_Rs})
         return loss, extra
 
@@ -287,29 +288,13 @@ def env_step(env, action, t, num_repeats=60):
 
     return (next_state, reward, t, episode_done)
 
-def apply_epsilon_greedy(args):
-    action, step = args
-    
-    # Explore or Exploit
-    explore_p = explore_stop + (explore_start - explore_stop)*np.exp(-decay_rate*step)
-    
-    if .05 > np.random.rand():
-        # Just so it doesn't print all the time
-        print("Explore P: ", explore_p)
-
-    if explore_p > np.random.rand():
-        # Replace action a random action
-        action = get_random_action()
-    # else, action is already gotten from network
-
-    return action
-
 def reset_envs(env):
     env.reset()
     return env
 
-def get_bootstrap(next_state, reward, sess, mainA2C):
+def get_bootstrap(args, sess, mainA2C):
     # Getting R to use as initial condition. Essentially doing the whole target function thing. 
+    state, action, next_state, reward, t, episode_done = args
     
     if reward == 0:
         next_state_data = np.expand_dims(np.array(next_state), axis=0)
@@ -319,6 +304,8 @@ def get_bootstrap(next_state, reward, sess, mainA2C):
 
     return bootstrapped_R
 
+def deep_cast_to_nparray(bad_array):
+    return np.array([np.array([np.array(a) for a in inner]) for inner in bad_array])
 
 def train(level, config):
     # Now train with experiences
@@ -327,8 +314,8 @@ def train(level, config):
     # Initialization
     envs_list = [deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)] * num_envs
     envs_list = map(reset_envs, envs_list)
-    state_list = map(lambda env: env.observations()['RGB_INTERLEAVED'], envs_list)
-    next_state_list = copy.deepcopy(state_list)
+    state_batch = map(lambda env: env.observations()['RGB_INTERLEAVED'], envs_list)
+    next_state_batch = copy.deepcopy(state_batch)
 
     # Initalization of multiprocessing stuff
     pipes = [Pipe() for i in range(num_envs)]
@@ -353,9 +340,9 @@ def train(level, config):
         for ep in range(1, train_episodes):
 
             # n-steps
-            n_steps_parallel = [[] for i in range(num_envs)]
+            n_steps_parallel = []
             for i in range(n):
-                state_list = next_state_list
+                state_batch = next_state_batch # TODO: Namespace collision?
 
                 step += 1
                 print("step: ", step)
@@ -363,7 +350,7 @@ def train(level, config):
                 # if step % 10 == 0:
                 #     print_policies = True
                 # GPU, PARALLEL
-                action_list = mainA2C.get_action(sess, np.array(state_list), t_list, print_policies)
+                action_list = mainA2C.get_action(sess, np.array(state_batch), t_list, print_policies)
                 # action_list = map(apply_epsilon_greedy, zip(action_list, [step] * num_envs))
 
                 # CPU, PARALLEL
@@ -373,43 +360,27 @@ def train(level, config):
                     parent_conns[i].send(package)
 
                 nextstate_reward_t_episodedone_list = [parent_conns[i].recv() for i in range(num_envs)]
-                next_state_list, reward_list, t_list, episode_done_list = zip(*nextstate_reward_t_episodedone_list)
+                next_state_batch, reward_list, t_list, episode_done_list = zip(*nextstate_reward_t_episodedone_list)
 
-                env_tuples = zip(state_list, action_list, next_state_list, reward_list, t_list, episode_done_list)
+                env_tuples = zip(state_batch, action_list, next_state_batch, reward_list, t_list, episode_done_list)
 
                 # Accumulate n-step experience
-                for i in range(num_envs):
-                    n_steps_parallel[i].append(env_tuples[i])
+                n_steps_parallel.append(np.array(env_tuples))
 
 
-            # More accumulation
-            n_steps_train_data = []
-            for e in n_steps_parallel:
-                n_steps_train_data.extend(e)
 
-            state_list, action_list, next_state_list, reward_list, t_list, episode_done_list = zip(*n_steps_train_data)
+            bootstrap_vals_list = [get_bootstrap(last_state, sess, mainA2C) for last_state in n_steps_parallel[0]]
 
-            # Getting bootstrap values. Ew.
-            next_state_list_reshape = np.reshape(next_state_list, [n, num_envs, state_size[0], state_size[1], state_size[2]])
-            reward_list_reshape = np.reshape(reward_list, [n, num_envs])
-            episode_done_list = np.reshape(episode_done_list, [n, num_envs])
-            bootstrap_vals_list = []
-            for i in range(num_envs):
-                bootstrapped_val = get_bootstrap(next_state_list_reshape[-1][i], reward_list_reshape[-1][i], sess, mainA2C)
-                bootstrap_vals_list.append(bootstrapped_val)
+            n_steps_parallel = [deep_cast_to_nparray(tup) for tup in np.moveaxis(n_steps_parallel, -1, 0)]
+            state_list, action_list, _next_state_list, reward_list, _t_list, _episode_done_list = n_steps_parallel
 
-            # Getting discounts at different timesteps.
             vec_f = np.vectorize(lambda x: 0 if x != 0 else gamma)
-            pcontinues_list = np.array([vec_f(i) for i in reward_list])
-            pcontinues_list = np.reshape(pcontinues_list, [num_envs, n])
+            pcontinues_list = np.reshape(np.array([vec_f(i) for i in reward_list]), [n,num_envs])
 
-            # reward_list = np.array([[0,1] for i in range(n)])
-            # reward_list_reshape = reward_list #np.reshape(reward_list, [num_envs, n])
-            # pcontinues_list = np.ones((num_envs, n))
-            print("rewards: ", reward_list)
-            print("rewards reshaped: ", reward_list_reshape)
-            print("pcontinues_list: ", np.reshape(pcontinues_list, [n, num_envs]))
-            print("bootstrap_vals_list: ", bootstrap_vals_list)
+
+            print("action_list.shape: ", action_list)
+            print("state_list.shape: ", state_list.shape)
+            print("reward_list: ", reward_list)
 
             # Train step
             loss, extra = mainA2C.train_step(sess, state_list, action_list, reward_list, pcontinues_list, bootstrap_vals_list)
