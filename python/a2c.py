@@ -47,7 +47,7 @@ import trfl
 
 train_episodes = 5000          # max number of episodes to learn from
                                 # This is now number of steps per agent essentially 
-max_steps = 5               # max steps before reseting the agent
+max_steps = 40               # max steps before reseting the agent
 gamma = 0.8                   # future reward discount
 
 # Exploration parameters
@@ -69,8 +69,8 @@ num_envs = batch_size = 4                # experience mini-batch size
 pretrain_length = batch_size   # number experiences to pretrain the memory
 
 # Training parameters
-n = 5 # n in n-step updating
-entropy_reg_term = 1 #1000000. #regularization term for entropy
+n = 20 # n in n-step updating
+entropy_reg_term = .1 #1000000. #regularization term for entropy
 normalise_entropy = False # when true normalizes entropy to be in [-1, 0] to be more invariant to different size action spaces
 
 #target QN
@@ -246,7 +246,7 @@ def env_worker(child_conn, level, config):
             package = env_step(env, action, t)
             child_conn.send(package)
  
-def env_step(env, action, t, num_repeats=60):
+def env_step(env, action, t, num_repeats=20):
 
     # print(index_to_english(action))
     english_action = index_to_english(action)
@@ -275,7 +275,8 @@ def env_step(env, action, t, num_repeats=60):
     # print("t: ", t, "max_steps: ", max_steps, "reward: ", reward)
     if reward > 0 or t == max_steps:
         if t == max_steps:
-            reward = .0000001
+            # reward = .0000001
+            reward = -1
         next_state = np.zeros(state_size)
         t = 0
         env.reset()
@@ -381,6 +382,8 @@ def train(level, config):
             print("action_list.shape: ", action_list)
             print("state_list.shape: ", state_list.shape)
             print("reward_list: ", reward_list)
+            print("bootstrap_vals_list: ", bootstrap_vals_list)
+            print("pcontinues_list: ", pcontinues_list)
 
             # Train step
             loss, extra = mainA2C.train_step(sess, state_list, action_list, reward_list, pcontinues_list, bootstrap_vals_list)
@@ -393,6 +396,10 @@ def train(level, config):
             print("advantages: ", np.reshape(extra.advantages, [n, num_envs]))
             print("discounted_returns: ", np.reshape(extra.discounted_returns, [n, num_envs]))
 
+            # TODO:
+            # 1) Clip rewards
+            # 2) Make min/max policy?
+            # 3) clip policy gradients? Might already be done
 
         # print("Saving...")
         # saver.save(sess, '/mnt/hgfs/ryanprinster/lab/models/my_model', global_step=ep)
