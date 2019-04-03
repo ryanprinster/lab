@@ -1030,6 +1030,15 @@ py_binary(
     deps = ["@six_archive//:six"],
 )
 
+py_binary(
+    name = "python_a2c_lstm",
+    srcs = ["python/a2c_lstm.py"],
+    data = [":deepmind_lab.so"],
+    main = "python/a2c_lstm.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
+
 
 
 LOAD_TEST_SCRIPTS = [

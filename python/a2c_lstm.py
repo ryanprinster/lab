@@ -14,7 +14,6 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-"""1-Step Q-Learning. Parallel gameplay, synchronous algorithm execution (like A2C)."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -32,116 +31,109 @@ from pprint import pprint
 
 import deepmind_lab
 
-""" Dependencies used for this:
-    pip uninstall numpy
-    pip install --no-cache-dir numpy==1.15.4
-    pip install --upgrade tensorflow
-    pip install --upgrade tensorflow-probability
-    pip install wrapt"""
+""" 
+Dependencies used for this:
+pip uninstall numpy
+pip install --no-cache-dir numpy==1.15.4
+pip install --upgrade tensorflow
+pip install --upgrade tensorflow-probability
+pip install wrapt
+"""
 import tensorflow as tf
 import trfl
-
-
   
-# General Parameters
+# ______PARAMETERS______
 
-train_episodes = 5000          # max number of episodes to learn from
-                                # This is now number of steps per agent essentially 
-max_steps = 40               # max steps before reseting the agent
-gamma = 0.8                   # future reward discount
-
-# Exploration parameters
-explore_start = 1.0            # exploration probability at start
-explore_stop = 0.01            # minimum exploration probability 
-decay_rate = 0.005            # exponential decay rate for exploration prob
 
 # Network parameters
+state_size = (80,80,3)
+action_size = 6
+
 kernel_size_1 = [8,8,3]
 output_filters_conv1 = 32     
 output_filters_conv2 = 64     
 output_filters_conv3 = 64     
 hidden_size = 512               # number of units in each Q-network hidden layer
-learning_rate = 0.0001         # Q-network learning rate
+lstm_size = 256
 
-# Memory parameters
-# memory_size = 10000            # memory capacity
-num_envs = batch_size = 4                # experience mini-batch size
-pretrain_length = batch_size   # number experiences to pretrain the memory
 
 # Training parameters
-n = 20 # n in n-step updating
-entropy_reg_term = 1 #1000000. #regularization term for entropy
-normalise_entropy = False # when true normalizes entropy to be in [-1, 0] to be more invariant to different size action spaces
+train_episodes = 5000          # max number of episodes to learn from
+num_envs = 4                    # experience mini-batch size
 
-#target QN
-# update_target_every = 10
-state_size = (80,80,3)
-action_size = 6
+learning_rate = 0.0001          # learning rate
+n = 20                          # n in n-step updating
+max_steps = 40                  # max steps before reseting the agent
+gamma = 0.8                     # future reward discount
+entropy_reg_term = 0           # regularization term for entropy
+normalise_entropy = False       # when true normalizes entropy to be in [-1, 0] to be more invariant to different size action spaces
 
-
-def _action(*entries):
-  return np.array(entries, dtype=np.intc)
 
 class ActorCriticNetwork:
     def __init__(self, name):
-        # state inputs to the Q-network
         with tf.variable_scope(name):
-            # self.inputs_ = tf.placeholder(tf.float32, [n, num_envs, state_size[0], state_size[1], state_size[2]], name='inputs')
-            # self.inputs_flat = tf.reshape(self.inputs_, [n * num_envs, state_size[0], state_size[1], state_size[2]])
+            self.name = name
 
             self.inputs_ = tf.placeholder(tf.float32, [None, state_size[0], state_size[1], state_size[2]], name='inputs')
-            # Actions for the QNetwork:
-            # One-hot vector, with each action being as follows:
-            # (look_left, look_right, strafe_left, strafe_right, forward, backward)           
-            # These are mapped to the deepmind-lab (not one-hot) actions with the same names
-            # defined in ACTIONS
 
-            # One hot encode the actions to later choose the Q-value for the action
+            # One hot encode the actions:
+            # [look_left, look_right, strafe_left, strafe_right, forward, backward]
             self.actions_ = tf.placeholder(tf.int32, [n, num_envs], name='actions')
             
-            # ReLU hidden layers
+            # Conv layers
             self.conv1 = tf.contrib.layers.conv2d(self.inputs_, output_filters_conv1, kernel_size=8, stride=2)
             self.conv2 = tf.contrib.layers.conv2d(self.conv1, output_filters_conv2, kernel_size=4, stride=2)
             self.conv3 = tf.contrib.layers.conv2d(self.conv2, output_filters_conv3, kernel_size=4, stride=1)
             
+            # FC Layer
             self.fc1 = tf.contrib.layers.fully_connected( \
               tf.reshape(self.conv3, [-1, self.conv3.shape[1]*self.conv3.shape[2]*self.conv3.shape[3]]), \
-              hidden_size)
+              hidden_size)    
+
+            # LSTM Layer
+            self.lstm_cell = tf.nn.rnn_cell.LSTMCell(lstm_size, state_is_tuple=False)
+            self.lstm_hidden_state_input = tf.placeholder_with_default(
+                                        self.lstm_cell.zero_state(batch_size=num_envs, dtype=tf.float32),
+                                        [num_envs, hidden_size])
+            # Should be lstm_size not hidden_size?
+
+
+            self.lstm_input = tf.reshape(self.fc1, [-1, num_envs, hidden_size])
+
+            # Dynamic RNN code - might not need to be dynamic
+            self.lstm_output, self.lstm_hidden_state_output = tf.nn.dynamic_rnn(
+                self.lstm_cell,
+                self.lstm_input,
+                initial_state=self.lstm_hidden_state_input,
+                dtype=tf.float32,
+                time_major=True,
+                # parallel_iterations=num_envs, # Note: not sure what these do
+                # swap_memory=True, # Note: not sure what these do
+            )
+
+            self.lstm_output_flat = tf.reshape(self.lstm_output, [-1, lstm_size])
+            # TODO: rethink layer shapes?
+
 
             # Value function - Linear output layer
-            self.value_output = tf.contrib.layers.fully_connected(self.fc1, 1, 
+            self.value_output = tf.contrib.layers.fully_connected(self.lstm_output_flat, 1, 
                                                             activation_fn=None)
 
             # Policy - softmax output layer
-            self.policy_logits = tf.contrib.layers.fully_connected(self.fc1, action_size, activation_fn=None)
+            self.policy_logits = tf.contrib.layers.fully_connected(self.lstm_output_flat, action_size, activation_fn=None)
             self.policy_output = tf.contrib.layers.softmax(self.policy_logits)
-            
+            # Action sampling op
             self.action_output = tf.squeeze(tf.multinomial(logits=self.policy_logits,num_samples=1), axis=1)
 
-            self.name = name
+            # Used for TRFL stuff
+            self.value_output_unflat = tf.reshape(self.value_output, [n, num_envs])
+            self.policy_logits_unflat = tf.reshape(self.policy_logits, [n, num_envs, -1])
 
             self.rewards = tf.placeholder(tf.float32,[n, num_envs],name="rewards")
             self.discounts = tf.placeholder(tf.float32,[n, num_envs],name="discounts")
             self.initial_Rs = tf.placeholder(tf.float32, [num_envs], name="initial_Rs")
 
-            # Used for trfl stuff
-            self.value_output_unflat = tf.reshape(self.value_output, [n, num_envs])
-            self.policy_logits_unflat = tf.reshape(self.policy_logits, [n, num_envs, -1])
-
-            print("Network shapes:")
-            print("actions_: ", self.actions_.shape)
-            print("conv1: ", self.conv1.shape)
-            print("conv2: ", self.conv2.shape)
-            print("conv3: ", self.conv3.shape)
-            print("fc1: ", self.fc1.shape)
-            print("value_output: ", self.value_output.shape)
-            print("policy_logits: ", self.policy_logits.shape)
-            print("policy_output: ", self.policy_output.shape)
-
-            print("policy_logits_unflat: ", self.policy_logits_unflat.shape)
-            print("value_output_unflat: ", self.value_output_unflat.shape)
-
-            #TRFL qlearning
+            #TRFL loss
             a2c_loss, extra = trfl.sequence_advantage_actor_critic_loss(
                 policy_logits = self.policy_logits_unflat,
                 baseline_values = self.value_output_unflat, 
@@ -154,50 +146,77 @@ class ActorCriticNetwork:
             self.loss = tf.reduce_mean(a2c_loss)
             self.extra = extra
             self.opt = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
-            
-    def get_action(self, sess, state, t_list, print_policies=False):
+
+            print("Network shapes:")
+            print("inputs_: ", self.inputs_.shape)
+            print("actions_: ", self.actions_.shape)
+            print("conv1: ", self.conv1.shape)
+            print("conv2: ", self.conv2.shape)
+            print("conv3: ", self.conv3.shape)
+            print("fc1: ", self.fc1.shape)
+            print("lstm_hidden_state_input: ", self.lstm_hidden_state_input.shape)
+            print("lstm_input: ", self.lstm_input.shape)
+            print("lstm_hidden_state_output: ", self.lstm_hidden_state_output.shape)
+            print("lstm_output: ", self.lstm_output.shape)
+            print("lstm_output_flat: ", self.lstm_output_flat.shape)
+            print("value_output: ", self.value_output.shape)
+            print("policy_logits: ", self.policy_logits.shape)
+            print("policy_output: ", self.policy_output.shape)
+            print("value_output_unflat: ", self.value_output_unflat.shape)
+            print("policy_logits_unflat: ", self.policy_logits_unflat.shape)
+
+
+
+    def get_action(self, sess, state, t_list, hidden_state_input, print_policies=True):
         """ 
-        Returns the action chosen by the QNetwork. 
-        Should be called by the mainA2C 
+        Feed forward to get action. 
         """
 
         feed = {mainA2C.inputs_: np.reshape(state, [-1, state_size[0], state_size[1], state_size[2]])}
-        actions, policies, logits = sess.run([mainA2C.action_output, mainA2C.policy_output, mainA2C.policy_logits], feed_dict=feed)
-        actions_softmax = [np.random.choice(len(policy), p=policy) for policy in policies]
-        print("actions action op: ", actions)
-        print("actions softmax: ", actions_softmax)
-        print("logits: ", logits)
-        return actions
+
+        # Can also do placeholder with default
+        if hidden_state_input is not None:
+            feed[self.lstm_hidden_state_input] = hidden_state_input
+
+        # policies, hidden_state_output = sess.run([mainA2C.policy_output, mainA2C.lstm_hidden_state_output], feed_dict=feed)
+        actions, logits, policy, hidden_state_output = sess.run([self.action_output, 
+                                                            self.policy_logits, 
+                                                            self.policy_output,
+                                                            self.lstm_hidden_state_output], feed_dict=feed)
+        print("logits: \n", logits)
+        print("policy: \n", policy)
+        return actions, hidden_state_output
     
-    def get_value(self, sess, state):
+    def get_value(self, sess, state, hidden_state_input):
         """ 
-        Returns the value of a state by the QNetwork. 
-        Should be called by the mainA2C 
+        Feed forward to get the value. 
         """
-        feed = {mainA2C.inputs_: np.reshape(state, [-1, state_size[0], state_size[1], state_size[2]])}
-        # feed = {mainA2C.inputs_: state.reshape((batch_size, state.shape[0], state.shape[1], state.shape[2]))}
-        policies, values = sess.run([mainA2C.policy_output, mainA2C.value_output], feed_dict=feed)
-        # print("values: ", values)
+        print("GET_VALUE")
+        print("state.shape: ", state.shape)
+        feed = {self.inputs_: np.reshape(state, [-1, state_size[0], state_size[1], state_size[2]]),
+                self.lstm_hidden_state_input: hidden_state_input}
+        values = sess.run(self.value_output, feed_dict=feed)
+        values = np.array(values).flatten()
         return values
 
-    def train_step(self, sess, states, actions, rewards, discounts, initial_Rs):
+    def train_step(self, sess, states, actions, rewards, discounts, initial_Rs, hidden_state_input):
         """
-        Runs a train step
-        Returns the loss
-        Should be called by mainA2C
+        Backprop to get the loss.
+        Done on partial trajectories.
         """
-
         loss, extra, opt = sess.run([self.loss, self.extra, self.opt], 
                     feed_dict={self.inputs_: np.reshape(states, [-1, 80, 80, 3]),
                                 self.actions_: actions,
                                 self.rewards: rewards,
                                 self.discounts: discounts,
-                                self.initial_Rs: initial_Rs})
+                                self.initial_Rs: initial_Rs,
+                                self.lstm_hidden_state_input: hidden_state_input})
         return loss, extra
 
+def _action(*entries):
+    return np.array(entries, dtype=np.intc)
 
 def get_random_action():
-    # return 4
     return random.randint(0,5)
 
     # DeepMind Lab defines takes actions as follows:
@@ -256,16 +275,15 @@ def env_step(env, action, t, num_repeats=20):
     reset = False
     
     while count < num_repeats:
+        if not env.is_running():
+            env.reset()
 
-      if not env.is_running():
-        env.reset()
-
-      reward = env.step(action)
-    
-      if reward != 0:
-        break 
-      
-      count +=1
+        reward = env.step(action)
+        
+        if reward != 0:
+            break 
+          
+        count +=1
     if reward > 0:
         print("Action: ", english_action, " REWARD: " + str(reward), "Steps taken: ", t)
 
@@ -293,24 +311,33 @@ def reset_envs(env):
     env.reset()
     return env
 
-def get_bootstrap(args, sess, mainA2C):
+def get_bootstrap(args, sess, mainA2C, hidden_state_input):
+    args = np.moveaxis(args, -1, 0)
     # Getting R to use as initial condition. Essentially doing the whole target function thing. 
-    state, action, next_state, reward, t, episode_done = args
-    
-    if reward == 0:
-        next_state_data = np.expand_dims(np.array(next_state), axis=0)
-        bootstrapped_R = np.max(mainA2C.get_value(sess, next_state_data)) # Shouldnt need to be a max
-    else:
-        bootstrapped_R = 0
+    _state, _action, next_state, reward, _t, _episode_done = args
+    next_state = np.array([np.array(s) for s in next_state])
+
+    next_state_data = np.expand_dims(np.array(next_state), axis=0)
+    bootstrapped_R = mainA2C.get_value(sess, next_state_data, hidden_state_input)
+
+    bootstrapped_Rs = []
+    for i in range(num_envs):
+        if reward[i] == 0:
+            bootstrapped_Rs.append(bootstrapped_R[i])
+        else:
+            bootstrapped_Rs.append(reward[i])
 
     return bootstrapped_R
 
 def deep_cast_to_nparray(bad_array):
     return np.array([np.array([np.array(a) for a in inner]) for inner in bad_array])
 
+# def get_discounts(reward_list):
+#   f = lambda x: 0.0 if x != 0 else gamma
+#   return np.array([[f(x) for x in y] for y in reward_list])
+
 def get_discounts(reward_list):
-  f = lambda x: 0.0 if x != 0 else gamma
-  return np.array([[f(x) for x in y] for y in reward_list])
+    return np.array([[gamma for x in y] for y in reward_list])
 
 def train(level, config):
     # Now train with experiences
@@ -346,17 +373,17 @@ def train(level, config):
 
             # n-steps
             n_steps_parallel = []
+            hidden_state_input = None
             for i in range(n):
                 state_batch = next_state_batch # TODO: Namespace collision?
 
                 step += 1
                 print("step: ", step)
                 print_policies = True
-                # if step % 10 == 0:
-                #     print_policies = True
                 # GPU, PARALLEL
-                action_list = mainA2C.get_action(sess, np.array(state_batch), t_list, print_policies)
-                # action_list = map(apply_epsilon_greedy, zip(action_list, [step] * num_envs))
+                action_list, hidden_state_input = mainA2C.get_action(sess, np.array(state_batch), t_list, hidden_state_input, print_policies)
+                
+                print("action_list: ", action_list)
 
                 # CPU, PARALLEL
                 # Take action in environment, get new state and reward
@@ -373,8 +400,8 @@ def train(level, config):
                 n_steps_parallel.append(np.array(env_tuples))
 
 
-
-            bootstrap_vals_list = [get_bootstrap(last_state, sess, mainA2C) for last_state in n_steps_parallel[0]]
+            # Need to this in GPU parallel
+            bootstrap_vals_list = get_bootstrap(n_steps_parallel[0], sess, mainA2C, hidden_state_input)
 
             n_steps_parallel = [deep_cast_to_nparray(tup) for tup in np.moveaxis(n_steps_parallel, -1, 0)]
             state_list, action_list, _next_state_list, reward_list, _t_list, _episode_done_list = n_steps_parallel
@@ -388,7 +415,7 @@ def train(level, config):
             print("pcontinues_list: ", pcontinues_list)
 
             # Train step
-            loss, extra = mainA2C.train_step(sess, state_list, action_list, reward_list, pcontinues_list, bootstrap_vals_list)
+            loss, extra = mainA2C.train_step(sess, state_list, action_list, reward_list, pcontinues_list, bootstrap_vals_list, hidden_state_input)
             
             print("total loss: ", loss)
             print("entropy: ", extra.entropy)
@@ -402,6 +429,7 @@ def train(level, config):
             # 1) Clip rewards
             # 2) Make min/max policy?
             # 3) clip policy gradients? Might already be done
+            # 4) remove 0s in pcontinues?
 
         # print("Saving...")
         # saver.save(sess, '/mnt/hgfs/ryanprinster/lab/models/my_model', global_step=ep)
