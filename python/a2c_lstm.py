@@ -61,11 +61,11 @@ lstm_size = 256
 train_episodes = 5000          # max number of episodes to learn from
 num_envs = 4                    # experience mini-batch size
 
-learning_rate = 0.0001          # learning rate
+learning_rate = 0.001          # learning rate
 n = 20                          # n in n-step updating
 max_steps = 40                  # max steps before reseting the agent
 gamma = 0.8                     # future reward discount
-entropy_reg_term = 0           # regularization term for entropy
+entropy_reg_term = 0.05           # regularization term for entropy
 normalise_entropy = False       # when true normalizes entropy to be in [-1, 0] to be more invariant to different size action spaces
 
 
@@ -74,21 +74,28 @@ class ActorCriticNetwork:
         with tf.variable_scope(name):
             self.name = name
 
+            # Input images
             self.inputs_ = tf.placeholder(tf.float32, [None, state_size[0], state_size[1], state_size[2]], name='inputs')
 
             # One hot encode the actions:
             # [look_left, look_right, strafe_left, strafe_right, forward, backward]
-            self.actions_ = tf.placeholder(tf.int32, [n, num_envs], name='actions')
+            self.actions = tf.placeholder(tf.int32, [None, num_envs], name='actions')
+            self.rewards = tf.placeholder(tf.float32, [None, num_envs], name='rewards')
             
             # Conv layers
             self.conv1 = tf.contrib.layers.conv2d(self.inputs_, output_filters_conv1, kernel_size=8, stride=2)
             self.conv2 = tf.contrib.layers.conv2d(self.conv1, output_filters_conv2, kernel_size=4, stride=2)
             self.conv3 = tf.contrib.layers.conv2d(self.conv2, output_filters_conv3, kernel_size=4, stride=1)
-            
+
+            # Constructing input to AC network
+            self.actions_input = tf.reshape(tf.one_hot(self.actions, action_size), [-1, action_size])
+            self.rewards_input = tf.reshape(self.rewards, [-1, 1])
+            self.vision_input = tf.reshape(self.conv3, [-1, self.conv3.shape[1]*self.conv3.shape[2]*self.conv3.shape[3]])
+
+            self.ac_input = tf.concat([self.actions_input, self.rewards_input, self.vision_input], axis=1)
+
             # FC Layer
-            self.fc1 = tf.contrib.layers.fully_connected( \
-              tf.reshape(self.conv3, [-1, self.conv3.shape[1]*self.conv3.shape[2]*self.conv3.shape[3]]), \
-              hidden_size)    
+            self.fc1 = tf.contrib.layers.fully_connected(self.ac_input, hidden_size)
 
             # LSTM Layer
             self.lstm_cell = tf.nn.rnn_cell.LSTMCell(lstm_size, state_is_tuple=False)
@@ -129,7 +136,6 @@ class ActorCriticNetwork:
             self.value_output_unflat = tf.reshape(self.value_output, [n, num_envs])
             self.policy_logits_unflat = tf.reshape(self.policy_logits, [n, num_envs, -1])
 
-            self.rewards = tf.placeholder(tf.float32,[n, num_envs],name="rewards")
             self.discounts = tf.placeholder(tf.float32,[n, num_envs],name="discounts")
             self.initial_Rs = tf.placeholder(tf.float32, [num_envs], name="initial_Rs")
 
@@ -137,7 +143,7 @@ class ActorCriticNetwork:
             a2c_loss, extra = trfl.sequence_advantage_actor_critic_loss(
                 policy_logits = self.policy_logits_unflat,
                 baseline_values = self.value_output_unflat, 
-                actions = self.actions_, 
+                actions = self.actions, 
                 rewards = self.rewards,
                 pcontinues = self.discounts, 
                 bootstrap_value = self.initial_Rs,
@@ -149,10 +155,11 @@ class ActorCriticNetwork:
 
             print("Network shapes:")
             print("inputs_: ", self.inputs_.shape)
-            print("actions_: ", self.actions_.shape)
+            print("actions: ", self.actions.shape)
             print("conv1: ", self.conv1.shape)
             print("conv2: ", self.conv2.shape)
             print("conv3: ", self.conv3.shape)
+            print("ac_input: ", self.ac_input.shape)
             print("fc1: ", self.fc1.shape)
             print("lstm_hidden_state_input: ", self.lstm_hidden_state_input.shape)
             print("lstm_input: ", self.lstm_input.shape)
@@ -167,12 +174,24 @@ class ActorCriticNetwork:
 
 
 
-    def get_action(self, sess, state, t_list, hidden_state_input, print_policies=True):
+    def get_action(self, sess, state, t_list, hidden_state_input, action_list, reward_list):
         """ 
         Feed forward to get action. 
         """
 
-        feed = {mainA2C.inputs_: np.reshape(state, [-1, state_size[0], state_size[1], state_size[2]])}
+        # Add the extra dimension for feed forward
+        if np.array(action_list).ndim == 1:
+            action_list = np.expand_dims(action_list, axis=0)
+        if np.array(reward_list).ndim == 1:
+            reward_list = np.expand_dims(reward_list, axis=0)
+
+        print("GET ACTION")
+        print("action_list: ", action_list)
+        print("reward_list: ", reward_list)
+
+        feed = {self.inputs_: np.reshape(state, [-1, state_size[0], state_size[1], state_size[2]]),
+                self.actions: action_list,
+                self.rewards: reward_list}
 
         # Can also do placeholder with default
         if hidden_state_input is not None:
@@ -187,14 +206,16 @@ class ActorCriticNetwork:
         print("policy: \n", policy)
         return actions, hidden_state_output
     
-    def get_value(self, sess, state, hidden_state_input):
+    def get_value(self, sess, state, hidden_state_input, action, reward):
         """ 
         Feed forward to get the value. 
         """
         print("GET_VALUE")
         print("state.shape: ", state.shape)
         feed = {self.inputs_: np.reshape(state, [-1, state_size[0], state_size[1], state_size[2]]),
-                self.lstm_hidden_state_input: hidden_state_input}
+                self.lstm_hidden_state_input: hidden_state_input,
+                self.actions: np.expand_dims(action, axis=0),
+                self.rewards: np.expand_dims(reward, axis=0)}
         values = sess.run(self.value_output, feed_dict=feed)
         values = np.array(values).flatten()
         return values
@@ -204,9 +225,10 @@ class ActorCriticNetwork:
         Backprop to get the loss.
         Done on partial trajectories.
         """
+        print("TRAIN_STEP")
         loss, extra, opt = sess.run([self.loss, self.extra, self.opt], 
                     feed_dict={self.inputs_: np.reshape(states, [-1, 80, 80, 3]),
-                                self.actions_: actions,
+                                self.actions: actions,
                                 self.rewards: rewards,
                                 self.discounts: discounts,
                                 self.initial_Rs: initial_Rs,
@@ -314,11 +336,11 @@ def reset_envs(env):
 def get_bootstrap(args, sess, mainA2C, hidden_state_input):
     args = np.moveaxis(args, -1, 0)
     # Getting R to use as initial condition. Essentially doing the whole target function thing. 
-    _state, _action, next_state, reward, _t, _episode_done = args
+    _state, action, next_state, reward, _t, _episode_done = args
     next_state = np.array([np.array(s) for s in next_state])
 
     next_state_data = np.expand_dims(np.array(next_state), axis=0)
-    bootstrapped_R = mainA2C.get_value(sess, next_state_data, hidden_state_input)
+    bootstrapped_R = mainA2C.get_value(sess, next_state_data, hidden_state_input, action, reward)
 
     bootstrapped_Rs = []
     for i in range(num_envs):
@@ -342,7 +364,6 @@ def get_discounts(reward_list):
 def train(level, config):
     # Now train with experiences
 
-    # TODO: this is not used right now. Discount rewards
     # Initialization
     envs_list = [deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)] * num_envs
     envs_list = map(reset_envs, envs_list)
@@ -368,6 +389,8 @@ def train(level, config):
 
         step = 0 # Same step at every train iteration
         t_list = [0 for i in range(num_envs)]
+        action_list = np.random.randint(6, size=num_envs)
+        reward_list = np.zeros(num_envs)
             
         for ep in range(1, train_episodes):
 
@@ -379,9 +402,8 @@ def train(level, config):
 
                 step += 1
                 print("step: ", step)
-                print_policies = True
                 # GPU, PARALLEL
-                action_list, hidden_state_input = mainA2C.get_action(sess, np.array(state_batch), t_list, hidden_state_input, print_policies)
+                action_list, hidden_state_input = mainA2C.get_action(sess, np.array(state_batch), t_list, hidden_state_input, action_list, reward_list)
                 
                 print("action_list: ", action_list)
 
@@ -404,18 +426,18 @@ def train(level, config):
             bootstrap_vals_list = get_bootstrap(n_steps_parallel[0], sess, mainA2C, hidden_state_input)
 
             n_steps_parallel = [deep_cast_to_nparray(tup) for tup in np.moveaxis(n_steps_parallel, -1, 0)]
-            state_list, action_list, _next_state_list, reward_list, _t_list, _episode_done_list = n_steps_parallel
+            state_list_train, action_list_train, _next_state_list, reward_list_train, _t_list, _episode_done_list = n_steps_parallel
 
-            pcontinues_list = get_discounts(reward_list)
+            pcontinues_list = get_discounts(reward_list_train)
 
-            print("action_list.shape: ", action_list)
-            print("state_list.shape: ", state_list.shape)
-            print("reward_list: ", reward_list)
+            print("action_list_train.shape: ", action_list_train)
+            print("state_list_train.shape: ", state_list_train.shape)
+            print("reward_list_train: ", reward_list_train)
             print("bootstrap_vals_list: ", bootstrap_vals_list)
             print("pcontinues_list: ", pcontinues_list)
 
             # Train step
-            loss, extra = mainA2C.train_step(sess, state_list, action_list, reward_list, pcontinues_list, bootstrap_vals_list, hidden_state_input)
+            loss, extra = mainA2C.train_step(sess, state_list_train, action_list_train, reward_list_train, pcontinues_list, bootstrap_vals_list, hidden_state_input)
             
             print("total loss: ", loss)
             print("entropy: ", extra.entropy)
