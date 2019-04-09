@@ -172,6 +172,31 @@ class ActorCriticNetwork:
             print("value_output_unflat: ", self.value_output_unflat.shape)
             print("policy_logits_unflat: ", self.policy_logits_unflat.shape)
 
+            # Tensorboard
+            self.average_reward_metric = tf.placeholder(tf.float32, name="average_reward")
+            # self.average_length_of_episode = tf.placeholder(tf.float32, name="average_length_of_episode")
+
+            policy_summary = tf.summary.tensor_summary('policy', self.policy_output)
+            reward_summary = tf.summary.scalar('average_reward_metric', self.average_reward_metric)
+            loss_summary = tf.summary.scalar('loss', self.loss)
+            entropy_summary = tf.summary.scalar('policy_entropy', tf.math.reduce_mean(self.extra.entropy))
+            baseline_loss_summary = tf.summary.scalar('baseline_loss', tf.math.reduce_mean(self.extra.baseline_loss))
+            entropy_loss_summary = tf.summary.scalar('entropy_loss', tf.math.reduce_mean(self.extra.entropy_loss))
+            policy_gradient_loss = tf.summary.scalar('policy_gradient_loss', tf.math.reduce_mean(self.extra.policy_gradient_loss))
+            
+            self.train_step_summary = tf.summary.merge([
+                reward_summary,
+                loss_summary,
+                entropy_summary,
+                baseline_loss_summary,
+                entropy_loss_summary,
+                policy_gradient_loss
+                ])
+
+            self.action_step_summary = tf.summary.merge([policy_summary])
+            # tf.summary.scalar('average_length_of_episode', self.average_length_of_episode)
+
+
 
 
     def get_action(self, sess, state, t_list, hidden_state_input, action_list, reward_list):
@@ -198,13 +223,15 @@ class ActorCriticNetwork:
             feed[self.lstm_hidden_state_input] = hidden_state_input
 
         # policies, hidden_state_output = sess.run([mainA2C.policy_output, mainA2C.lstm_hidden_state_output], feed_dict=feed)
-        actions, logits, policy, hidden_state_output = sess.run([self.action_output, 
+        actions, logits, policy, hidden_state_output, action_step_summary = \
+                                                    sess.run([self.action_output, 
                                                             self.policy_logits, 
                                                             self.policy_output,
-                                                            self.lstm_hidden_state_output], feed_dict=feed)
+                                                            self.lstm_hidden_state_output,
+                                                            self.action_step_summary], feed_dict=feed)
         print("logits: \n", logits)
         print("policy: \n", policy)
-        return actions, hidden_state_output
+        return actions, hidden_state_output, action_step_summary
     
     def get_value(self, sess, state, hidden_state_input, action, reward):
         """ 
@@ -226,14 +253,16 @@ class ActorCriticNetwork:
         Done on partial trajectories.
         """
         print("TRAIN_STEP")
-        loss, extra, opt = sess.run([self.loss, self.extra, self.opt], 
+        loss, extra, opt, train_step_summary = \
+                sess.run([self.loss, self.extra, self.opt, self.train_step_summary], 
                     feed_dict={self.inputs_: np.reshape(states, [-1, 80, 80, 3]),
                                 self.actions: actions,
                                 self.rewards: rewards,
                                 self.discounts: discounts,
                                 self.initial_Rs: initial_Rs,
-                                self.lstm_hidden_state_input: hidden_state_input})
-        return loss, extra
+                                self.lstm_hidden_state_input: hidden_state_input,
+                                self.average_reward_metric: np.mean(rewards)})
+        return loss, extra, train_step_summary
 
 def _action(*entries):
     return np.array(entries, dtype=np.intc)
@@ -385,7 +414,7 @@ def train(level, config):
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         # https://medium.com/@anthony_sarkis/tensorboard-quick-start-in-5-minutes-e3ec69f673af
-        # train_writer = tf.summary.FileWriter( '/mnt/hgfs/ryanprinster/lab/tensorboard', sess.graph)
+        train_writer = tf.summary.FileWriter( '/mnt/hgfs/ryanprinster/lab/tensorboard', sess.graph)
 
         step = 0 # Same step at every train iteration
         t_list = [0 for i in range(num_envs)]
@@ -403,8 +432,15 @@ def train(level, config):
                 step += 1
                 print("step: ", step)
                 # GPU, PARALLEL
-                action_list, hidden_state_input = mainA2C.get_action(sess, np.array(state_batch), t_list, hidden_state_input, action_list, reward_list)
-                
+                action_list, hidden_state_input, action_step_summary = mainA2C.get_action(
+                    sess, 
+                    np.array(state_batch), 
+                    t_list, 
+                    hidden_state_input, 
+                    action_list, 
+                    reward_list)
+                train_writer.add_summary(action_step_summary, step)
+
                 print("action_list: ", action_list)
 
                 # CPU, PARALLEL
@@ -437,7 +473,15 @@ def train(level, config):
             print("pcontinues_list: ", pcontinues_list)
 
             # Train step
-            loss, extra = mainA2C.train_step(sess, state_list_train, action_list_train, reward_list_train, pcontinues_list, bootstrap_vals_list, hidden_state_input)
+            loss, extra, summary = mainA2C.train_step(sess, 
+                state_list_train, 
+                action_list_train, 
+                reward_list_train, 
+                pcontinues_list, 
+                bootstrap_vals_list, 
+                hidden_state_input)
+
+            train_writer.add_summary(summary, int(step))
             
             print("total loss: ", loss)
             print("entropy: ", extra.entropy)
