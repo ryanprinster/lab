@@ -1039,6 +1039,14 @@ py_binary(
     deps = ["@six_archive//:six"],
 )
 
+py_binary(
+    name = "python_grid_network",
+    srcs = ["python/grid_network.py"],
+    data = [":deepmind_lab.so"],
+    main = "python/grid_network.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
 
 
 LOAD_TEST_SCRIPTS = [

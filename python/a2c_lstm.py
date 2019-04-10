@@ -53,7 +53,7 @@ kernel_size_1 = [8,8,3]
 output_filters_conv1 = 32     
 output_filters_conv2 = 64     
 output_filters_conv3 = 64     
-hidden_size = 512               # number of units in each Q-network hidden layer
+hidden_size = 512               # number of units in hidden layer
 lstm_size = 256
 
 
@@ -540,6 +540,7 @@ def run(length, width, height, fps, level, record, demo, demofiles, video):
   }
 
 
+  level = "tests/hannahs_maze"
 
   train(level, config)
 

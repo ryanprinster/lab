@@ -77,6 +77,13 @@ WORKDIR ../
 # install tqdm
 RUN pip install tqdm
 
+# install trfl stuff
+RUN pip uninstall numpy
+RUN pip install --no-cache-dir numpy==1.15.4
+RUN pip install --upgrade tensorflow
+RUN pip install --upgrade tensorflow-probability
+RUN pip install wrapt
+RUN pip install trfl
 
 # RUN apt-get update && apt-get install -y \
 #	dirmngr \
