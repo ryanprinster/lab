@@ -34,13 +34,14 @@ import tensorflow as tf
 
 class GridNetwork(object):
     """Basic random agent for DeepMind Lab."""
-    def __init__(self, name, lstm_size, grid_layer_size, N, M):
+    def __init__(self, name, lstm_size=128, grid_layer_size=512, N=256, M=12,
+        learning_rate = 1e-5, grad_clip_thresh=1e-5, max_time=100):
         with tf.variable_scope(name):
             
             # Constructing inputs to the lstm layer
-            self.translational_velocity = tf.placeholder(tf.float32, [None, None, 1])
-            self.sine_angular_velocity = tf.placeholder(tf.float32, [None, None, 1])
-            self.cosine_angular_velocity = tf.placeholder(tf.float32, [None, None, 1])
+            self.translational_velocity = tf.placeholder(tf.float32, [None, max_time, 1])
+            self.sine_angular_velocity = tf.placeholder(tf.float32, [None, max_time, 1])
+            self.cosine_angular_velocity = tf.placeholder(tf.float32, [None, max_time, 1])
 
             self.lstm_input = tf.concat([
                 self.translational_velocity,
@@ -90,8 +91,8 @@ class GridNetwork(object):
             # self.pred_head_dir = tf.contrib.layers.softmax(self.pred_head_dir_logits)
 
             # Construct loss
-            self.place_cell_labels = tf.placeholder(tf.float32, [None, None, N])
-            self.head_dir_labels = tf.placeholder(tf.float32, [None, None, M])
+            self.place_cell_labels = tf.placeholder(tf.float32, [None, max_time, N])
+            self.head_dir_labels = tf.placeholder(tf.float32, [None, max_time, M])
 
             self.place_cell_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
                 labels=self.place_cell_labels,
@@ -105,8 +106,20 @@ class GridNetwork(object):
 
             # Optimizer
             # TODO: Add weight decay to decoder layers
-            # TODO: Add gradient clipping to output of grid cell layer
-            self.optimizer = tf.train.RMSPropOptimizer(self.loss, momentum=.9)
+            self.optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=.9)
+            
+            # Clip gradients
+            gvs = self.optimizer.compute_gradients(self.loss)
+            # Note: currently, last 6 ones here correspond to the grid cell layer
+            # and the place/head cell layers. 
+            capped_gvs = [(tf.clip_by_value(grad, -grad_clip_thresh, grad_clip_thresh), var) for grad, var in gvs[-6:]]
+            new_gvs = gvs[:-6] + capped_gvs
+
+            self.train_op = self.optimizer.apply_gradients(new_gvs)
+
+class RatMotionModel(object):
+    """Simulates motion of a rat to collect observations to path integrate"""
+    
 
 
 def run(width, height, level_script, frame_count):
@@ -118,11 +131,7 @@ def run(width, height, level_script, frame_count):
     learning_rate = 1e-5
 
     grid_network = GridNetwork(\
-        name="grid_network", 
-        lstm_size=128, 
-        grid_layer_size=512,
-        N=256, 
-        M=12)
+        name="grid_network")
  
 
 

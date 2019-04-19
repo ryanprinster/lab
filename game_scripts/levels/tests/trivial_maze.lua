@@ -112,6 +112,23 @@ end
 --   return episodeFinished
 -- end
 
+-- testing this out
+function api:playerMover(kwargs)
+  print(kwargs.moverPos)
+  print(kwargs.playerVel)
+    assert(kwargs.moverId == 1)
+    return {
+        (kwargs.moverPos[1] - kwargs.playerPos[1]),
+        (kwargs.moverPos[2] - kwargs.playerPos[2]),
+        0.0,
+    },
+    {
+        -kwargs.playerVel[1],
+        -kwargs.playerVel[2],
+        0.0,
+    }
+  end
+
 function api:nextMap()
   return self._map
 end

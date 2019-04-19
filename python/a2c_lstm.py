@@ -414,6 +414,8 @@ def train(level, config):
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         # https://medium.com/@anthony_sarkis/tensorboard-quick-start-in-5-minutes-e3ec69f673af
+        # Need to switch for om
+        # train_writer = tf.summary.FileWriter( '/mnt/hgfs/ryanprinster/lab/tensorboard', sess.graph)
         train_writer = tf.summary.FileWriter( '/mnt/hgfs/ryanprinster/lab/tensorboard', sess.graph)
 
         step = 0 # Same step at every train iteration

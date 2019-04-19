@@ -48,7 +48,10 @@ RUN export BAZEL_VERSION=0.16.1 && \
 
 
 # Install TensorFlow and other dependencies
-RUN pip install tensorflow==1.9.0 dm-sonnet
+RUN pip install tensorflow==1.13.1 dm-sonnet
+RUN pip install tensorflow-probability 
+RUN pip install wrapt 
+RUN pip install trfl
 
 # Install Tensorforce (cpu)
 # RUN pip install tensorforce[tf]
@@ -77,29 +80,22 @@ WORKDIR ../
 # install tqdm
 RUN pip install tqdm
 
-# install trfl stuff
-RUN pip uninstall numpy
-RUN pip install --no-cache-dir numpy==1.15.4
-RUN pip install --upgrade tensorflow
-RUN pip install --upgrade tensorflow-probability
-RUN pip install wrapt
-RUN pip install trfl
 
 # RUN apt-get update && apt-get install -y \
-#	dirmngr \
-#	gnupg \
-#	--no-install-recommends \
-#	&& apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 0AB215679C571D1C8325275B9BDB3D89CE49EC21 \
-#	&& echo "deb http://ppa.launchpad.net/mozillateam/firefox-next/ubuntu xenial main" >> /etc/apt/sources.list.d/firefox.list \
-#	&& apt-get update && apt-get install -y \
-#	apulse \
-#	ca-certificates \
-#	firefox \
-#	hicolor-icon-theme \
-#	libasound2 \
-#	libpulse0 \
-#	--no-install-recommends \
-#	&& rm -rf /var/lib/apt/lists/*
+#   dirmngr \
+#   gnupg \
+#   --no-install-recommends \
+#   && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 0AB215679C571D1C8325275B9BDB3D89CE49EC21 \
+#   && echo "deb http://ppa.launchpad.net/mozillateam/firefox-next/ubuntu xenial main" >> /etc/apt/sources.list.d/firefox.list \
+#   && apt-get update && apt-get install -y \
+#   apulse \
+#   ca-certificates \
+#   firefox \
+#   hicolor-icon-theme \
+#   libasound2 \
+#   libpulse0 \
+#   --no-install-recommends \
+#   && rm -rf /var/lib/apt/lists/*
 
 ENV LANG en-US
 
@@ -110,4 +106,3 @@ COPY local.conf /etc/fonts/local.conf
 # COPY entrypoint.sh /usr/bin/startfirefox
 
 ENTRYPOINT bash
-
