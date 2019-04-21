@@ -390,8 +390,10 @@ def deep_cast_to_nparray(bad_array):
 def get_discounts(reward_list):
     return np.array([[gamma for x in y] for y in reward_list])
 
-def train(level, config):
+def train(level, config, tensorboard_path):
     # Now train with experiences
+    print("num_envs", num_envs)
+    print("tensorboard_path", tensorboard_path)
 
     # Initialization
     envs_list = [deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)] * num_envs
@@ -416,7 +418,7 @@ def train(level, config):
         # https://medium.com/@anthony_sarkis/tensorboard-quick-start-in-5-minutes-e3ec69f673af
         # Need to switch for om
         # train_writer = tf.summary.FileWriter( '/mnt/hgfs/ryanprinster/lab/tensorboard', sess.graph)
-        train_writer = tf.summary.FileWriter( '/mnt/hgfs/ryanprinster/lab/tensorboard', sess.graph)
+        train_writer = tf.summary.FileWriter(tensorboard_path, sess.graph)
 
         step = 0 # Same step at every train iteration
         t_list = [0 for i in range(num_envs)]
@@ -506,12 +508,11 @@ def train(level, config):
         # saver.restore(sess, tf.train.latest_checkpoint('/mnt/hgfs/ryanprinster/lab/models/'))
 
 
-tf.reset_default_graph()
-mainA2C = ActorCriticNetwork(name='main_acn')
 
-
-def run(length, width, height, fps, level, record, demo, demofiles, video):
+def run(length, width, height, fps, level, record, demo, demofiles, video, 
+    tensorboard_path, _num_envs):
   """Spins up an environment and runs the random agent."""
+  # TODO: make tabs/spaces consistent
   config = {
       'fps': str(fps),
       'width': str(width),
@@ -541,12 +542,9 @@ def run(length, width, height, fps, level, record, demo, demofiles, video):
       'crouch': _action(0, 0, 0, 0, 0, 0, 1)
   }
 
+  # TODO: Remove global variables
 
-  level = "tests/hannahs_maze"
-
-  train(level, config)
-
-
+  train(level, config, tensorboard_path)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description=__doc__)
@@ -561,7 +559,7 @@ if __name__ == '__main__':
   parser.add_argument('--runfiles_path', type=str, default=None,
                       help='Set the runfiles path to find DeepMind Lab data')
   parser.add_argument('--level_script', type=str,
-                      default='tests/empty_room_test',
+                      default='tests/trivial_maze',
                       help='The environment level script to load')
   parser.add_argument('--record', type=str, default=None,
                       help='Record the run to a demo file')
@@ -571,9 +569,14 @@ if __name__ == '__main__':
                       help='Directory for demo files')
   parser.add_argument('--video', type=str, default=None,
                       help='Record the demo run as a video')
+  parser.add_argument('--tensorboard_path', type=str, 
+                      default='/mnt/hgfs/ryanprinster/lab/tensorboard',
+                      help='Set the tensorboard path to save tensorboard output')
+  # parser.add_argument('--num_envs', type=int, default=1,
+  #                     help='Set the number of environments to run in parallel')
 
   args = parser.parse_args()
   if args.runfiles_path:
     deepmind_lab.set_runfiles_path(args.runfiles_path)
   run(args.length, args.width, args.height, args.fps, args.level_script,
-      args.record, args.demo, args.demofiles, args.video)
+      args.record, args.demo, args.demofiles, args.video, args.tensorboard_path, args.num_envs)
