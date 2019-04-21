@@ -119,7 +119,6 @@ class ActorCriticNetwork:
             )
 
             self.lstm_output_flat = tf.reshape(self.lstm_output, [-1, lstm_size])
-            # TODO: rethink layer shapes?
 
 
             # Value function - Linear output layer
@@ -172,9 +171,35 @@ class ActorCriticNetwork:
             print("value_output_unflat: ", self.value_output_unflat.shape)
             print("policy_logits_unflat: ", self.policy_logits_unflat.shape)
 
+
+            print(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
+            graph = tf.get_default_graph()
+
+            # TODO: get this some other way?
+            conv1_w_summary = tf.summary.histogram('conv1 weights',graph.get_tensor_by_name("main_acn/Conv/weights:0"))
+            conv1_b_summary = tf.summary.histogram('conv1 biases',graph.get_tensor_by_name("main_acn/Conv/biases:0"))
+            conv2_w_summary = tf.summary.histogram('conv2 weights',graph.get_tensor_by_name("main_acn/Conv_1/weights:0"))
+            conv2_b_summary = tf.summary.histogram('conv2 biases',graph.get_tensor_by_name("main_acn/Conv_1/biases:0"))
+            conv3_w_summary = tf.summary.histogram('conv2 weights',graph.get_tensor_by_name("main_acn/Conv_2/weights:0"))
+            conv3_b_summary = tf.summary.histogram('conv3 biases',graph.get_tensor_by_name("main_acn/Conv_2/biases:0"))
+            fc1_w_summary = tf.summary.histogram('fc1 weights',graph.get_tensor_by_name("main_acn/fully_connected/weights:0"))
+            fc1_b_summary = tf.summary.histogram('fc1 biases',graph.get_tensor_by_name("main_acn/fully_connected/biases:0"))
+            lstm_w_summary = tf.summary.histogram('lstm weights',graph.get_tensor_by_name("main_acn/rnn/lstm_cell/kernel:0"))
+            lstm_b_summary = tf.summary.histogram('lstm biases',graph.get_tensor_by_name("main_acn/rnn/lstm_cell/bias:0"))
+            value_w_summary = tf.summary.histogram('value weights',graph.get_tensor_by_name("main_acn/fully_connected_1/weights:0"))
+            value_b_summary = tf.summary.histogram('value biases',graph.get_tensor_by_name("main_acn/fully_connected_1/biases:0"))
+            policy_w_summary = tf.summary.histogram('policy weights',graph.get_tensor_by_name("main_acn/fully_connected_2/weights:0"))
+            policy_b_summary = tf.summary.histogram('policy biases',graph.get_tensor_by_name("main_acn/fully_connected_2/biases:0"))
+
             # Tensorboard
             self.average_reward_metric = tf.placeholder(tf.float32, name="average_reward")
             # self.average_length_of_episode = tf.placeholder(tf.float32, name="average_length_of_episode")
+
+            conv1_summary = tf.summary.histogram('conv1', self.conv1)
+            conv2_summary = tf.summary.histogram('conv2', self.conv2)
+            conv3_summary = tf.summary.histogram('conv3', self.conv3)
+            fc1_summary = tf.summary.histogram('fc1', self.fc1)
+            # lstm_summary = tf.summary.histogram('lstm', self.lstm_cell)
 
             policy_summary = tf.summary.tensor_summary('policy', self.policy_output)
             reward_summary = tf.summary.scalar('average_reward_metric', self.average_reward_metric)
@@ -190,7 +215,21 @@ class ActorCriticNetwork:
                 entropy_summary,
                 baseline_loss_summary,
                 entropy_loss_summary,
-                policy_gradient_loss
+                policy_gradient_loss,
+                conv1_w_summary,
+                conv1_b_summary,
+                conv2_w_summary,
+                conv2_b_summary,
+                conv3_w_summary,
+                conv3_b_summary,
+                fc1_w_summary,
+                fc1_b_summary,
+                lstm_w_summary,
+                lstm_b_summary,
+                value_w_summary,
+                value_b_summary,
+                policy_w_summary,
+                policy_b_summary
                 ])
 
             self.action_step_summary = tf.summary.merge([policy_summary])
@@ -546,6 +585,9 @@ def run(length, width, height, fps, level, record, demo, demofiles, video,
 
   train(level, config, tensorboard_path)
 
+tf.reset_default_graph()
+mainA2C = ActorCriticNetwork(name='main_acn')
+
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument('--length', type=int, default=10,
@@ -572,8 +614,8 @@ if __name__ == '__main__':
   parser.add_argument('--tensorboard_path', type=str, 
                       default='/mnt/hgfs/ryanprinster/lab/tensorboard',
                       help='Set the tensorboard path to save tensorboard output')
-  # parser.add_argument('--num_envs', type=int, default=1,
-  #                     help='Set the number of environments to run in parallel')
+  parser.add_argument('--num_envs', type=int, default=1,
+                      help='Set the number of environments to run in parallel')
 
   args = parser.parse_args()
   if args.runfiles_path:
