@@ -58,12 +58,12 @@ lstm_size = 256
 
 
 # Training parameters
-train_episodes = 5000          # max number of episodes to learn from
+train_episodes = 2#500          # max number of episodes to learn from
 num_envs = 4                    # experience mini-batch size
 
 learning_rate = 0.001          # learning rate
 n = 20                          # n in n-step updating
-max_steps = 40                  # max steps before reseting the agent
+max_steps = train_episodes*n    # max steps before reseting the agent
 gamma = 0.8                     # future reward discount
 entropy_reg_term = 0.05           # regularization term for entropy
 normalise_entropy = False       # when true normalizes entropy to be in [-1, 0] to be more invariant to different size action spaces
@@ -344,7 +344,7 @@ def index_to_english(action):
 
 
 def env_worker(child_conn, level, config):
-    env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)
+    env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED', 'POS'], config=config)
     env.reset()
     print("Started another environment worker!")
 
@@ -352,9 +352,14 @@ def env_worker(child_conn, level, config):
         # if child_conn.poll():
         # Note: using the above loops, without it blocks. Not sure which is fastest.
             action, t = child_conn.recv()
-            package = env_step(env, action, t)
+
+            # Get position and velocityt
+            if action == None:
+                package = env.observations()['POS']
+            else:
+                package = env_step(env, action, t)
             child_conn.send(package)
- 
+
 def env_step(env, action, t, num_repeats=20):
 
     # print(index_to_english(action))
@@ -429,16 +434,28 @@ def deep_cast_to_nparray(bad_array):
 def get_discounts(reward_list):
     return np.array([[gamma for x in y] for y in reward_list])
 
+def get_positions(parent_conns):
+
+    # Send empty package to indicate want position.
+    parent_conns[0].send((None, None))
+    position = parent_conns[0].recv()
+    return position
+
 def train(level, config, tensorboard_path):
     # Now train with experiences
     print("num_envs", num_envs)
     print("tensorboard_path", tensorboard_path)
 
     # Initialization
+
+    # TODO: this should come from 
     envs_list = [deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)] * num_envs
     envs_list = map(reset_envs, envs_list)
     state_batch = map(lambda env: env.observations()['RGB_INTERLEAVED'], envs_list)
     next_state_batch = copy.deepcopy(state_batch)
+
+    # Init stuff for positions
+    position_data = []
 
     # Initalization of multiprocessing stuff
     pipes = [Pipe() for i in range(num_envs)]
@@ -471,6 +488,9 @@ def train(level, config, tensorboard_path):
             hidden_state_input = None
             for i in range(n):
                 state_batch = next_state_batch # TODO: Namespace collision?
+
+                # Track X, Y position
+                position_data.append(get_positions(parent_conns))
 
                 step += 1
                 print("step: ", step)
@@ -540,6 +560,8 @@ def train(level, config, tensorboard_path):
             # 3) clip policy gradients? Might already be done
             # 4) remove 0s in pcontinues?
 
+        print("saving text")
+        np.save('/mnt/hgfs/ryanprinster/test/position_data.npy', np.array(position_data))
         # print("Saving...")
         # saver.save(sess, '/mnt/hgfs/ryanprinster/lab/models/my_model', global_step=ep)
 

@@ -67,12 +67,19 @@ local function framesRemainingAt60()
   framesRemainingTensor:val(timeout.timeRemainingSeconds() * 60)
 end
 
+local function position()
+  local posinfo = game:playerInfo().pos
+  return tensor.DoubleTensor{posinfo[1], posinfo[2], posinfo[3]}
+
+end
+
 --[[ Decorate the api to support custom observations:
 
 1.  Player translational velocity (VEL.TRANS).
 2.  Player angular velocity (VEL.ROT).
 3.  Language channel for, e.g. giving instructions to the agent (INSTR).
 4.  See debug_observations.lua for those.
+5.  Player position (POS)
 ]]
 function custom_observations.decorate(api)
   local init = api.init
@@ -83,6 +90,8 @@ function custom_observations.decorate(api)
     custom_observations.addSpec('TEAM.SCORE', 'Doubles', {2}, teamScore)
     custom_observations.addSpec('FRAMES_REMAINING_AT_60', 'Doubles', {1},
                                 framesRemainingAt60)
+    custom_observations.addSpec('POS', 'Doubles', {3}, position)
+
     api.setInstruction('')
     debug_observations.extend(custom_observations)
     if params.enableCameraMovement == 'true' then

@@ -995,6 +995,15 @@ py_binary(
 )
 
 py_binary(
+    name = "python_spring_agent",
+    srcs = ["python/spring_agent.py"],
+    data = [":deepmind_lab.so"],
+    main = "python/spring_agent.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
+
+py_binary(
     name = "python_dqn",
     srcs = ["python/dqn.py"],
     data = [":deepmind_lab.so"],
