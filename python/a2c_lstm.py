@@ -58,19 +58,24 @@ lstm_size = 256
 
 
 # Training parameters
-train_episodes = 2#500          # max number of episodes to learn from
+train_episodes = 5000#500          # max number of episodes to learn from
 num_envs = 4                    # experience mini-batch size
+
+# global learning_rate
+# global max_steps
+# global gamma
+# global entropy_reg_term
 
 learning_rate = 0.001          # learning rate
 n = 20                          # n in n-step updating
-max_steps = train_episodes*n    # max steps before reseting the agent
+max_steps = num_envs*train_episodes*n    # max steps before reseting the agent
 gamma = 0.8                     # future reward discount
 entropy_reg_term = 0.05           # regularization term for entropy
 normalise_entropy = False       # when true normalizes entropy to be in [-1, 0] to be more invariant to different size action spaces
 
 
 class ActorCriticNetwork:
-    def __init__(self, name):
+    def __init__(self, name, num_envs=4, n=20):
         with tf.variable_scope(name):
             self.name = name
 
@@ -441,7 +446,7 @@ def get_positions(parent_conns):
     position = parent_conns[0].recv()
     return position
 
-def train(level, config, tensorboard_path):
+def train(level, config, tensorboard_path, mainA2C):
     # Now train with experiences
     print("num_envs", num_envs)
     print("tensorboard_path", tensorboard_path)
@@ -560,8 +565,8 @@ def train(level, config, tensorboard_path):
             # 3) clip policy gradients? Might already be done
             # 4) remove 0s in pcontinues?
 
-        print("saving text")
-        np.save('/mnt/hgfs/ryanprinster/test/position_data.npy', np.array(position_data))
+            print("saving text")
+            np.save('/mnt/hgfs/ryanprinster/test/position_data.npy', np.array(position_data))
         # print("Saving...")
         # saver.save(sess, '/mnt/hgfs/ryanprinster/lab/models/my_model', global_step=ep)
 
@@ -571,7 +576,8 @@ def train(level, config, tensorboard_path):
 
 
 def run(length, width, height, fps, level, record, demo, demofiles, video, 
-    tensorboard_path, _num_envs):
+    tensorboard_path, num_envs, n, max_steps_, learning_rate_, gamma_, 
+      entropy_reg_term_):
   """Spins up an environment and runs the random agent."""
   # TODO: make tabs/spaces consistent
   config = {
@@ -604,11 +610,15 @@ def run(length, width, height, fps, level, record, demo, demofiles, video,
   }
 
   # TODO: Remove global variables
+  global max_steps, learning_rate, gamma, entropy_reg_term
+  max_steps, learning_rate, gamma, entropy_reg_term = \
+  max_steps_, learning_rate_, gamma_, entropy_reg_term_
 
-  train(level, config, tensorboard_path)
+  tf.reset_default_graph()
+  mainA2C = ActorCriticNetwork(name='main_acn', num_envs=num_envs, n=20)
 
-tf.reset_default_graph()
-mainA2C = ActorCriticNetwork(name='main_acn')
+  train(level, config, tensorboard_path, mainA2C)
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description=__doc__)
@@ -623,7 +633,7 @@ if __name__ == '__main__':
   parser.add_argument('--runfiles_path', type=str, default=None,
                       help='Set the runfiles path to find DeepMind Lab data')
   parser.add_argument('--level_script', type=str,
-                      default='tests/trivial_maze',
+                      default='tests/hannahs_maze',
                       help='The environment level script to load')
   parser.add_argument('--record', type=str, default=None,
                       help='Record the run to a demo file')
@@ -638,9 +648,22 @@ if __name__ == '__main__':
                       help='Set the tensorboard path to save tensorboard output')
   parser.add_argument('--num_envs', type=int, default=1,
                       help='Set the number of environments to run in parallel')
+  parser.add_argument('--n', type=int, default=5,
+                      help='Set the length at which to truncate the LSTM')
+  parser.add_argument('--max_steps', type=int, default=500,
+                      help='Max number of steps before resetting the agent')
+  parser.add_argument('--learning_rate', type=float, default=.001,
+                      help='Learning rate')
+  parser.add_argument('--gamma', type=float, default=.99,
+                      help='Future reward discount')
+  parser.add_argument('--entropy_reg_term', type=float, default=.05,
+                      help='Entropy regularization term')
+
 
   args = parser.parse_args()
   if args.runfiles_path:
     deepmind_lab.set_runfiles_path(args.runfiles_path)
   run(args.length, args.width, args.height, args.fps, args.level_script,
-      args.record, args.demo, args.demofiles, args.video, args.tensorboard_path, args.num_envs)
+      args.record, args.demo, args.demofiles, args.video, args.tensorboard_path, 
+      args.num_envs, args.max_steps, args.n, args.learning_rate, args.gamma, 
+      args.entropy_reg_term)

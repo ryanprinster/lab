@@ -16,8 +16,11 @@ local make_map = require 'common.make_map'
 local pickups = require 'common.pickups'
 local custom_observations = require 'decorators.custom_observations'
 local game = require 'dmlab.system.game'
+local game_entities = require 'dmlab.system.game_entities'
 local timeout = require 'decorators.timeout'
 local api = {}
+local pickups_spawn = require 'dmlab.system.pickups_spawn'
+
 
 local MAP_ENTITIES = [[
 *********
@@ -53,42 +56,21 @@ function api:updateSpawnVars(spawnVars)
   return spawnVars
 end
 
-function api:hasEpisodeFinished(_)
-  print('Position:')
-  print(game:playerInfo().pos[1])
-  for k,v in pairs(game:playerInfo().pos) do
-    print('k: ', k)
-    print('v: ', v)
-    print('')
-  end
-end
-
--- local customObservationSpec = api.customObservationSpec
--- function api:customObservationSpec()
---   local specs = customObservationSpec and customObservationSpec(api) or {}
---   for i, spec in ipairs(obsSpec) do
---     specs[#specs + 1] = spec
---   end
---   return specs
+-- function api:registerDynamicItems()
+--   return {'func_lua_mover'}
 -- end
 
--- local observationTable = {
---     LOCATION = tensor.Tensor{0, 0, 0},
--- }
-
--- local customObservation = api.customObservation
--- function api:customObservation(name)
---   return observationTable[name]
--- end
-
--- -- See customObservation how to implement these.
-
--- function api:customObservationSpec()
+-- function api:extraEntities()
 --   return {
---     {name = 'LOCATION', type = 'doubles', shape = {3}},
+--       {
+--           classname = 'func_lua_mover'
+--       },
 --   }
 -- end
 
+function api:getEntityLayer()
+  return MAP_ENTITIES
+end
 
 timeout.decorate(api, 60 * 60)
 custom_observations.decorate(api)

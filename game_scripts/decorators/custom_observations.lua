@@ -74,6 +74,11 @@ local function position()
   return tensor.DoubleTensor{posinfo[1], posinfo[2], posinfo[3]}
 end
 
+local function angles()
+  local angleinfo = game:playerInfo().angles
+  return tensor.DoubleTensor{angleinfo[1], angleinfo[2], angleinfo[3]}
+end
+
 -- Helper function for distanceToClosestWall()
 local function tablelength(T)
   local count = 0
@@ -195,7 +200,10 @@ end
 
 local function distanceToClosestWall()  
   closest_wall, closest_wall_distance = getClosestNeighborAndDistance()
-  return closest_wall_distance
+  -- The agent operates as a square in the environment. It actually
+  -- is stopped by the wall at 16.125 units horizontally, and 
+  -- sqrt(2)*16.125 units diagonally.
+  return tensor.DoubleTensor{closest_wall_distance - 16.125}
 end
 
 local function normalizedYaw(angle)
@@ -216,29 +224,20 @@ local function angleToClosestWall()
   relativeYaw = absoluteYaw
 
   if closest_wall == 'forward' then
-    return normalizedYaw(relativeYaw)
+    relativeYaw = normalizedYaw(relativeYaw)
+  elseif closest_wall == 'backward' then
+    relativeYaw = normalizedYaw(180 - relativeYaw)
+  elseif closest_wall == 'right' then
+    relativeYaw = normalizedYaw(90 - relativeYaw)
+  elseif closest_wall == 'left' then
+    relativeYaw = -normalizedYaw(-90 - relativeYaw)
+  else
+    relativeYaw = 1000.0 -- must return doubles at all times
   end
-  if closest_wall == 'backward' then
-    return normalizedYaw(180 - relativeYaw)
-  end
-  if closest_wall == 'right' then
-    return normalizedYaw(90 - relativeYaw)
-  end
-  if closest_wall == 'left' then
-    return -normalizedYaw(-90 - relativeYaw)
-  end
-  -- if closest_wall == 'forward' then
-  --   distances['forward_right'] = distance_diag_fr
-  -- end
-  -- if neighbors['backward_right'] == '*' then
-  --   distances['backward_right'] = distance_diag_br
-  -- end
-  -- if neighbors['forward_left'] == '*' then
-  --   distances['forward_left'] = distance_diag_fl
-  -- end
-  -- if neighbors['backward_left'] == '*' then
-  --   distances['backward_left'] = distance_diag_bl
-  -- end
+
+  return tensor.DoubleTensor{relativeYaw}
+
+  -- NOTE: Angle is currently only for the non-diagonal
 end
 
 --[[ Decorate the api to support custom observations:
@@ -257,8 +256,7 @@ function custom_observations.decorate(api)
   else
     print("Must provide getEntityLayer() in lua script")
   end
-  distanceToClosestWall()
-
+  print(entityLayer)
 
   function api:init(params)
     custom_observations.addSpec('VEL.TRANS', 'Doubles', {3}, velocity)
@@ -268,6 +266,11 @@ function custom_observations.decorate(api)
     custom_observations.addSpec('FRAMES_REMAINING_AT_60', 'Doubles', {1},
                                 framesRemainingAt60)
     custom_observations.addSpec('POS', 'Doubles', {3}, position)
+    custom_observations.addSpec('ANGLES', 'Doubles', {3}, angles)    
+    custom_observations.addSpec('DISTANCE_TO_WALL', 'Doubles', {1}, 
+                                distanceToClosestWall)
+    custom_observations.addSpec('ANGLE_TO_WALL', 'Doubles', {1}, 
+                                angleToClosestWall)
 
     api.setInstruction('')
     debug_observations.extend(custom_observations)

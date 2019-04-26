@@ -39,86 +39,54 @@ class RandomAgent(object):
     self.action_spec = action_spec
     self.action_count = len(action_spec)
 
-  def step(self):
+  def step(self, scale):
     """Choose a random amount of a randomly selected action."""
     action_choice = random.randint(0, self.action_count - 1)
     action_amount = random.randint(self.action_spec[action_choice]['min'],
                                    self.action_spec[action_choice]['max'])
     action = np.zeros([self.action_count], dtype=np.intc)
-    action[action_choice] = action_amount
+    action[3] = 1*scale
+    print("action:", action)
     return action
 
+  def randomTurn(self, mu, sigma, samples):
+    return np.random.normal(mu, sigma, samples)
 
-def other_one(x):
-  return x
+  def randomVelocity(self, b, samples):
+    return np.random.rayleigh(b, samples)
 
-def worker(child_conn, level_script, config, frame_count):
-
-  env = deepmind_lab.Lab(level_script, ['RGB_INTERLEAVED'], config=config)
-  env.reset()
-  print("HAHAH I MADE ANOTHER ONE")
-  
-  x = other_one(10)
-
-  reward = 0
-  agent = RandomAgent(env.action_spec())
-  for _ in six.moves.range(frame_count):
-    if not env.is_running():
-      print('Environment stopped early')
-      env.reset()
-      agent.reset()
-    action = agent.step()
-    reward += env.step(action, num_steps=1)
-
-  print('Finished after %i steps. Total reward received is %f'
-        % (frame_count, reward))
-  return reward
-
-
-def test(x):
-  print(x)
 
 def run(width, height, level_script, frame_count):
   """Spins up an environment and runs the random agent."""
   config = {'width': str(width), 'height': str(height)}
 
-  env = deepmind_lab.Lab(level_script, ['RGB_INTERLEAVED'], config=config)
+  observations = ['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS']
+  env = deepmind_lab.Lab(level_script, observations, config=config)
 
-  print("starting env loop thing")
-  import time
-  start = time.time()
-  for i in range(10):
-    env.reset()
-  end = time.time()
+  agent = RandomAgent(env.action_spec())
+  env.reset()
 
-  print("Time for 100 resets: ", end-start)
-
+  print("DISTANCE_TO_WALL")
+  print(env.observations()['DISTANCE_TO_WALL'])
+  print("ANGLE_TO_WALL")
+  print(env.observations()['ANGLE_TO_WALL'])
 
 
-  # num_processes = 10
+  vel_trans_data = []
 
-  # pipes = [Pipe() for i in range(num_processes)]
-  # parent_conns, child_conns = zip(*pipes)
-  
-  # processes = [Process(target=worker, 
-  #             args=(child_conns[i],level_script, config, frame_count)) 
-  #             for i in range(num_processes)]
+  for i in range(20):
+    action = agent.step(1)
+    env.step(action, num_steps=1)
+    vel_trans = env.observations()['VEL.TRANS']
+    vel_trans_data.append(vel_trans)
 
-  # # Initialize
-  # for i in range(len(processes)):
-  #     processes[i].start()
-  #     package = (1, i)
-  #     parent_conns[i].send(package)
+  for i in range(20):
+    action = agent.step(-1)
+    env.step(action, num_steps=1)
+    vel_trans = env.observations()['VEL.TRANS']
+    vel_trans_data.append(vel_trans)
 
-  # responses = [parent_conns[i].recv() for i in range(num_processes)]
-  
-  # print(responses)
-
-  # for i in range(num_processes):
-  #   package = responses[i]
-  #   parent_conns[i].send(package)
-
-  
+  np.save('/mnt/hgfs/ryanprinster/test/vel_trans_data.npy', np.array(vel_trans_data))
 
 
 if __name__ == '__main__':

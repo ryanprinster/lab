@@ -77,16 +77,12 @@ class SpringAgent(object):
     self.indices = {a['name']: i for i, a in enumerate(self.action_spec)}
     self.mins = np.array([a['min'] for a in self.action_spec])
     self.maxs = np.array([a['max'] for a in self.action_spec])
-    print("self.indices: ", self.indices)
-    print("self.mins: ", self.mins)
-    print("self.maxs: ", self.maxs)
-
     self.reset()
 
     self.rewards = 0
 
   def critically_damped_derivative(self, t, omega, displacement, velocity):
-    r"""Critical damping for movement.
+    """Critical damping for movement.
     I.e., x(t) = (A + Bt) \exp(-\omega t) with A = x(0), B = x'(0) + \omega x(0)
     See
       https://en.wikipedia.org/wiki/Damping#Critical_damping_.28.CE.B6_.3D_1.29
@@ -114,11 +110,17 @@ class SpringAgent(object):
     # dragged us towards the random `action`, given our current velocity.
     self.velocity = self.critically_damped_derivative(1, self.omega, action,
                                                       self.velocity)
-    print("velocity:", self.velocity)
 
     # Since walk and strafe are binary, we need some additional memory to
     # smoothen the movement. Adding half of action from the last step works.
     self.action = self.velocity / self.velocity_scaling + 0.5 * self.action
+
+    # Fire with p = 0.01 at each step
+    self.action[self.indices['FIRE']] = int(np.random.random() > 0.99)
+
+    # Jump/crouch with p = 0.005 at each step
+    self.action[self.indices['JUMP']] = int(np.random.random() > 0.995)
+    self.action[self.indices['CROUCH']] = int(np.random.random() > 0.995)
 
     # Clip to the valid range and convert to the right dtype
     return self.clip_action(self.action)
@@ -146,36 +148,88 @@ def run(length, width, height, fps, level, record, demo, demofiles, video):
     config['demofiles'] = demofiles
   if video:
     config['video'] = video
-  env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED', 'VEL.TRANS', 'POS'], config=config)
+  
+  observations = ['RGB_INTERLEAVED', 
+    'VEL.TRANS', 
+    'VEL.ROT', 
+    'POS', 
+    'ANGLES', 
+    'DISTANCE_TO_WALL', 
+    'ANGLE_TO_WALL']
+  env = deepmind_lab.Lab(level, observations, config=config)
 
+  agent = SpringAgent(env.action_spec())
   env.reset()
 
-  # Starts the random spring agent. As a simpler alternative, we could also
-  # use DiscretizedRandomAgent().
-  agent = SpringAgent(env.action_spec())
+  vel_diffs = []
+  vels = []
 
-  reward = 0
 
-  for _ in six.moves.range(length):
-    if not env.is_running():
-      print('Environment stopped early')
-      env.reset()
-      agent.reset()
-    obs = env.observations()
-    print('VEL.TRANS')
-    print(obs['VEL.TRANS'])
-    print('POS')
-    print(obs['POS'])
-    action = agent.step(reward, obs['RGB_INTERLEAVED'])
-    reward = env.step(action, num_steps=1)
+  print('Initial Vel:')
+  vel = env.observations()['VEL.TRANS'][1]
 
-  print('Finished after %i steps. Total reward received is %f'
-        % (length, agent.rewards))
+  for i in range(20):
+    print('Move Forward')
+    action = np.array([0, 0, 1, 0, 0, 0, 0], dtype=np.intc)
+    env.step(action, num_steps=1)
+    print('Vel Diff:')
+    new_vel = env.observations()['VEL.TRANS'][1]
+    diff = abs(vel - new_vel)
+    print(diff)
+    vels.append(new_vel)
+    vel = new_vel
+    vel_diffs.append(diff)
+
+    print(env.observations()['POS'][1])
+    print(env.observations()['ANGLES'][1])
+
+  for i in range(5):
+    action = np.array([0, 0, 0, 0, 0, 0, 0], dtype=np.intc)
+    env.step(action, num_steps=1)
+    new_vel = env.observations()['VEL.TRANS'][1]
+    diff = abs(vel - new_vel)
+    vels.append(new_vel)
+    vel = new_vel
+    vel_diffs.append(diff)
+
+
+
+  print(vel_diffs)
+  print(vels)
+  # for i in range(100):
+  #   # action = agent.step(0, 0)
+  #   action = np.array([0, 0, 0, 0, 0, 0, 0])
+  #   print(action)
+  #   yaw = env.observations()['ANGLES'][1]
+  #   env.step(action, num_steps=1)
+
+
+
+  # agent = SpringAgent(env.action_spec())
+
+  # reward = 0
+
+  # for _ in six.moves.range(length):
+  #   if not env.is_running():
+  #     print('Environment stopped early')
+  #     env.reset()
+  #     agent.reset()
+  #   obs = env.observations()
+  #   print('VEL.TRANS')
+  #   print(obs['VEL.TRANS'])
+  #   print('POS')
+  #   print(obs['POS'])
+  #   action = agent.step(reward, obs['RGB_INTERLEAVED'])
+  #   print('action', action)
+  #   reward = env.step(action, num_steps=1)
+
+  # print('Finished after %i steps. Total reward received is %f'
+  #       % (length, agent.rewards))
 
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description=__doc__)
-  parser.add_argument('--length', type=int, default=1000,
+  parser.add_argument('--length', type=int, default=10,
                       help='Number of steps to run the agent')
   parser.add_argument('--width', type=int, default=80,
                       help='Horizontal size of the observations')
