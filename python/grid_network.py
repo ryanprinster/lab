@@ -33,7 +33,7 @@ import tensorflow as tf
 
 
 class GridNetwork(object):
-    """Basic random agent for DeepMind Lab."""
+    """Grid Network"""
     def __init__(self, name, lstm_size=128, grid_layer_size=512, N=256, M=12,
         learning_rate = 1e-5, grad_clip_thresh=1e-5, max_time=100):
         with tf.variable_scope(name):
@@ -117,9 +117,48 @@ class GridNetwork(object):
 
             self.train_op = self.optimizer.apply_gradients(new_gvs)
 
-class RatMotionModel(object):
-    """Simulates motion of a rat to collect observations to path integrate"""
-    
+class PlaceCells(object):
+    def __init__(self,N):
+        self.N = N
+        self.locations = _generate_place_cells(N)
+        self.sigma = 0.01 * 32
+        # Note: In DeepMind Lab there are 32 units to the meter, 
+        # so we multiply any plane or position by this number.
+
+    def _generate_place_cells(N):
+        """
+        Generates ground truth locations for place cells.
+        TODO: do this for a given maze.
+        """
+        low, high = 100, 800
+        place_cell_locations = np.random.uniform(low, high, (self.N, 2)) # place cell centers
+        sigma = 0.01 * 32
+        return place_cell_locations
+
+    def _gaussian(x, mu, sig):
+        return np.exp(-np.sum(np.power(x - mu, 2.)) / (2 * np.power(sig, 2.)))
+
+
+    def get_ground_truth_activation(x):
+        """For a given location, get activations of all place cells"""
+        activations = []
+        for mu in self.locations:
+            activation = _gaussian(x, mu, self.sigma)
+            activations.append(activation)
+        normalized_activations = activations/np.sum(np.array(activations))
+        return normalized_activations
+
+    def get_ground_truth_activations(X):
+        """ For a list of locations, get activations of all place cells"""
+        many_activations = []
+        for loc in X:
+            many_activations.append(get_ground_truth_activation(loc))
+        return many_activations
+
+class HeadDirCells(object):
+    def __init__(self, M):
+        self.M = M
+        
 
 
 def run(width, height, level_script, frame_count):
@@ -129,10 +168,25 @@ def run(width, height, level_script, frame_count):
     # env = deepmind_lab.Lab(level_script, ['RGB_INTERLEAVED'], config=config)
 
     learning_rate = 1e-5
+    train_iterations = 2
+    N=256
+    M=12
 
-    grid_network = GridNetwork(\
-        name="grid_network")
- 
+    place_cells = PlaceCells(N)
+
+
+
+    # obs_data = np.load('/mnt/hgfs/ryanprinster/test/obs_data.npy')
+    # pos_data = np.load('/mnt/hgfs/ryanprinster/test/pos_data.npy')
+    # dir_data = np.load('/mnt/hgfs/ryanprinster/test/dir_data.npy')
+
+    # print("obs_data shape:", obs_data.shape)
+    # print("pos_data shape:", pos_data.shape)
+    # print("dir_data shape:", dir_data.shape)
+
+    grid_network = GridNetwork(name="grid_network")
+    # for i in range(train_iterations):
+
 
 
   

@@ -576,7 +576,7 @@ def train(level, config, tensorboard_path, mainA2C):
 
 
 def run(length, width, height, fps, level, record, demo, demofiles, video, 
-    tensorboard_path, num_envs, n, max_steps_, learning_rate_, gamma_, 
+    tensorboard_path, num_envs_, n_, max_steps_, learning_rate_, gamma_, 
       entropy_reg_term_):
   """Spins up an environment and runs the random agent."""
   # TODO: make tabs/spaces consistent
@@ -610,12 +610,14 @@ def run(length, width, height, fps, level, record, demo, demofiles, video,
   }
 
   # TODO: Remove global variables
-  global max_steps, learning_rate, gamma, entropy_reg_term
-  max_steps, learning_rate, gamma, entropy_reg_term = \
-  max_steps_, learning_rate_, gamma_, entropy_reg_term_
+  global max_steps, learning_rate, gamma, entropy_reg_term, num_envs, n
+  max_steps, learning_rate, gamma, entropy_reg_term, num_envs, n = \
+  max_steps_, learning_rate_, gamma_, entropy_reg_term_,  num_envs_, n_
 
+  print('num_envs:', num_envs)
+  print('n:', n)
   tf.reset_default_graph()
-  mainA2C = ActorCriticNetwork(name='main_acn', num_envs=num_envs, n=20)
+  mainA2C = ActorCriticNetwork(name='main_acn', num_envs=num_envs, n=n)
 
   train(level, config, tensorboard_path, mainA2C)
 
