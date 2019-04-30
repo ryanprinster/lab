@@ -90,19 +90,21 @@ def run(width, height, level_script, frame_count):
   env = deepmind_lab.Lab(level_script, observations, config=config)
   env.reset()
 
-  agent = RandomAgent(env.action_spec())
-
   observation_data = []
   position_data = []
   direction_data = []
+
 
   for i in range(frame_count):
     dWall = env.observations()['DISTANCE_TO_WALL']
     aWall = env.observations()['ANGLE_TO_WALL']
     vel = abs(env.observations()['VEL.TRANS'][1])
     pos = env.observations()['POS']
-    yaw = env.observations()['ANGLES'][2]
+    yaw = env.observations()['ANGLES'][1]
     obs = env.observations()['RGB_INTERLEAVED']
+
+    print("angles: ", env.observations()['ANGLES'])
+    print("pos: ", pos)
 
     # Update
     if dWall < threshold_distance and abs(aWall) < threshold_angle and aWall <= 360:

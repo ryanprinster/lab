@@ -51,6 +51,11 @@ local function velocity()
   return tensor.DoubleTensor{velx, vely, info.vel[3]}
 end
 
+-- local function angularVelocity()
+--   local velInfo = game:playerInfo().anglesVel
+--   return tensor.DoubleTensor{velInfo[1], velInfo[2], velInfo[3]}
+-- end
+
 local function angularVelocity()
   return tensor.DoubleTensor(game:playerInfo().anglesVel)
 end

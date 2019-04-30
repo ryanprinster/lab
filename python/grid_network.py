@@ -120,52 +120,205 @@ class GridNetwork(object):
 class PlaceCells(object):
     def __init__(self,N):
         self.N = N
-        self.locations = _generate_place_cells(N)
-        self.sigma = 0.01 * 32
+        self.locations = self._generate_place_cells(N)
+        self.sigma = 1 #NOTE: this can't be too small, or you'll get NaN errors
         # Note: In DeepMind Lab there are 32 units to the meter, 
         # so we multiply any plane or position by this number.
 
-    def _generate_place_cells(N):
+    def _generate_place_cells(self, N):
         """
         Generates ground truth locations for place cells.
         TODO: do this for a given maze.
         """
-        low, high = 100, 800
+        low, high = 100/32., 800/32.
         place_cell_locations = np.random.uniform(low, high, (self.N, 2)) # place cell centers
-        sigma = 0.01 * 32
         return place_cell_locations
 
-    def _gaussian(x, mu, sig):
+    def _gaussian(self, x, mu, sig):
         return np.exp(-np.sum(np.power(x - mu, 2.)) / (2 * np.power(sig, 2.)))
+            # problem might be in the np.sum
 
-
-    def get_ground_truth_activation(x):
+    def get_ground_truth_activation(self, x):
         """For a given location, get activations of all place cells"""
         activations = []
         for mu in self.locations:
-            activation = _gaussian(x, mu, self.sigma)
+            activation = self._gaussian(x, mu, self.sigma)
             activations.append(activation)
         normalized_activations = activations/np.sum(np.array(activations))
         return normalized_activations
 
-    def get_ground_truth_activations(X):
+    def get_ground_truth_activations(self, X):
         """ For a list of locations, get activations of all place cells"""
         many_activations = []
         for loc in X:
-            many_activations.append(get_ground_truth_activation(loc))
+            many_activations.append(self.get_ground_truth_activation(loc))
         return many_activations
 
 class HeadDirCells(object):
     def __init__(self, M):
         self.M = M
-        
+        self.directions= self._generate_head_cells(M)
+        self.k = 20
+
+    def _generate_head_cells(self, M):
+        # just doing this in degrees
+        # actually need to do this in radians
+        low, high = -np.pi, np.pi
+        head_cell_directions = np.random.uniform(low, high, self.M)
+        return head_cell_directions
+
+    def _von_mises(self, phi, mu):
+        return np.exp(self.k * np.cos(phi-mu))
+
+    def get_ground_truth_activation(self, phi):
+        """For a given head direction, get activations of all head dir cells"""
+        activations = []
+        for mu in self.directions:
+            activations.append(self._von_mises(phi, mu))
+        return activations/np.sum(np.array(activations))
+
+    def get_ground_truth_activations(self, X):
+        """For a list of locations, get activationns of all head dir cells"""
+        return [self.get_ground_truth_activation(phi) for phi in X]
+
+
+class RatTrajectoryGenerator():
+    def __init__(self, env):
+        self.env = env
+        self.frame_count = 100
+        self.threshold_distance = 16 #currently abitrary number
+        self.threshold_angle = 90
+        self.mu = 0 #currently abitrary number
+        self.sigma = 12 #currently abitrary number
+        self.b = 1 #currently abitrary number
+        self.observation_data = []
+        self.position_data = []
+        self.direction_data = []
+        self.trans_velocity_data = []
+        self.ang_velocity_data = []
+
+        self.env.reset()
+
+    def randomTurn(self, samples=1):
+        return np.random.normal(self.mu, self.sigma, samples)
+
+    def randomVelocity(self, samples=1):
+        return np.random.rayleigh(self.b, samples)
+
+    def generateTrajectory(self):
+        # TODO: Start at random location?
+        self.env.reset()
+
+        prev_yaw = 0
+        for i in range(self.frame_count):
+            dWall = self.env.observations()['DISTANCE_TO_WALL']
+            aWall = self.env.observations()['ANGLE_TO_WALL']
+            vel = abs(self.env.observations()['VEL.TRANS'][1])
+            pos = self.env.observations()['POS']
+            yaw = self.env.observations()['ANGLES'][1]
+            obs = self.env.observations()['RGB_INTERLEAVED']
+            # vel_rot = self.env.observations()['VEL.ROT'][1]
+            # Note: On the lua side, game:playerInfo().anglesVel only works
+            # during :game human playing for some reason
+            ang_vel = yaw - prev_yaw # in px/frame
+            prev_yaw = yaw
+
+            # Update
+            if dWall < self.threshold_distance and abs(aWall) < self.threshold_angle and aWall <= 360:
+                # If heading towards a wall, slow down and turn away from it
+                desired_angle = np.sign(aWall)*(self.threshold_angle-abs(aWall)) \
+                              + self.randomTurn()      
+                deg_per_pixel = .1043701171875 # degrees per pixel rotated
+                turn_angle = desired_angle - aWall 
+                pixels_to_turn = int(turn_angle / deg_per_pixel)
+
+                forward_action = 0
+                prob_speed = dWall / self.threshold_distance
+                if random.uniform(0, 1) < prob_speed:
+                    forward_action = 1
+
+                action = np.array([pixels_to_turn, 0, 0, forward_action, 0, 0, 0], 
+                    dtype=np.intc)
+            else:
+                # Otherwise, act somewhat randomly
+                desired_turn = self.randomTurn()
+                desired_velocity = self.randomVelocity()
+                pixels_to_turn = int(desired_turn / .1043701171875)
+                action = np.array([pixels_to_turn, 0, 0, 1, 0, 0, 0], 
+                    dtype=np.intc)
+
+            self.env.step(action)
+
+            self.observation_data.append(obs)
+            self.position_data.append(pos)
+            self.direction_data.append(yaw)
+            self.trans_velocity_data.append(vel)
+            self.ang_velocity_data.append(ang_vel)
+
+            # TODO: Conversions to all correct units?
+        return self.observation_data, self.position_data, self.direction_data, \
+            self.trans_velocity_data, self.ang_velocity_data
+
+
+
+class Trainer(object):
+    def __init__(self, place_cells, head_cells, network, level_script, env,
+        ratTrajectoryGenerator, train_iterations=2):
+        self.place_cells = place_cells
+        self.head_cells = head_cells
+        self.grid_network = network
+        self.level_script = level_script
+        self.env = env
+        self.train_iterations = train_iterations
+        self.rat = ratTrajectoryGenerator
+
+    def train(self):
+
+        observation_data, position_data, direction_data, \
+        trans_velocity_data, ang_velocity_data = self.rat.generateTrajectory()
+        cos_vel_data = np.cos(ang_velocity_data)
+        sin_vel_data = np.sin(ang_velocity_data)
+
+        x_y_positions = np.delete(position_data,2,axis=1)
+        initial_position = x_y_positions[0]
+        initial_direction = direction_data[0]
+        # print("x_y_positions: ", x_y_positions)
+
+        with tf.Session() as sess:
+            sess.run(tf.global_variables_initializer())
+            train_iterations = 2
+            # for i in range(train_iterations):
+
+            # Then do the labels
+            feed = {
+                self.grid_network.translational_velocity: trans_velocity_data,
+                self.grid_network.cosine_angular_velocity: cos_vel_data,
+                self.grid_network.sine_angular_velocity: sin_vel_data,
+                self.grid_network.place_activity: self.place_cells.locations,
+                self.grid_network.head_dir_activity: self.head_cells.directions,
+                self.grid_network.dropout_prob: .5,
+                self.grid_network.place_cell_labels: 
+                    self.place_cells.get_ground_truth_activation(initial_position),
+                self.grid_network.head_dir_labels: 
+                    self.head_cells.get_ground_truth_activation(initial_direction)
+            }
+
+            _, loss = sess.run(
+                [self.grid_network.train_op, self.grid_network.loss], 
+                feed_dict=feed)
+            print("loss: ", loss)
+
+
+
+
 
 
 def run(width, height, level_script, frame_count):
     """Spins up an environment and runs the agent."""
-    # config = {'width': str(width), 'height': str(height)}
-
-    # env = deepmind_lab.Lab(level_script, ['RGB_INTERLEAVED'], config=config)
+    config = {'width': str(width), 'height': str(height)}
+    obs_types = ['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS',
+                'DISTANCE_TO_WALL', 'ANGLE_TO_WALL', 'ANGLES']
+    env = deepmind_lab.Lab(level_script, obs_types, config=config)
 
     learning_rate = 1e-5
     train_iterations = 2
@@ -173,19 +326,45 @@ def run(width, height, level_script, frame_count):
     M=12
 
     place_cells = PlaceCells(N)
+    head_dir_cells = HeadDirCells(M)
+
+    grid_network = GridNetwork(name="grid_network")
+    rat = RatTrajectoryGenerator(env)
+
+    trainer = Trainer(place_cells, head_dir_cells, grid_network, level_script,
+        env, rat)
+    trainer.train()
 
 
 
-    # obs_data = np.load('/mnt/hgfs/ryanprinster/test/obs_data.npy')
-    # pos_data = np.load('/mnt/hgfs/ryanprinster/test/pos_data.npy')
-    # dir_data = np.load('/mnt/hgfs/ryanprinster/test/dir_data.npy')
+
+    # Testing stuff
+    # print("place_cells: ", place_cells.locations)
+    # print("head_dir_cells: ", head_dir_cells.directions)
+
+    # loc = [450/32., 450/32.]
+    # dir_ = 0
+    # print("place cell activation wrt:", loc)
+    # print("head dir cell activation wrt:", dir_)
+
+    # print("place_cells_activations: ", 
+    #     place_cells.get_ground_truth_activation(loc))
+    # print("head_dir_cells_activations: ", 
+    #     head_dir_cells.get_ground_truth_activation(dir_))
+
+    # locs = [[450/32., 450/32.], [150/32., 150/32.]]
+    # dirs = [0,1]
+
+    # print("place_cells_activations: ", 
+    #     place_cells.get_ground_truth_activations(locs))
+    # print("head_dir_cells_activations: ", 
+    #     head_dir_cells.get_ground_truth_activations(dirs))
+
 
     # print("obs_data shape:", obs_data.shape)
     # print("pos_data shape:", pos_data.shape)
     # print("dir_data shape:", dir_data.shape)
 
-    grid_network = GridNetwork(name="grid_network")
-    # for i in range(train_iterations):
 
 
 
@@ -202,7 +381,7 @@ if __name__ == '__main__':
                       help='Vertical size of the observations')
     parser.add_argument('--runfiles_path', type=str, default=None,
                       help='Set the runfiles path to find DeepMind Lab data')
-    parser.add_argument('--level_script', type=str, default='tests/trivial_maze',
+    parser.add_argument('--level_script', type=str, default='tests/empty_room_test',
                       help='The environment level script to load')
 
     args = parser.parse_args()
