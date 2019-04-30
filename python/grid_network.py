@@ -34,14 +34,17 @@ import tensorflow as tf
 
 class GridNetwork(object):
     """Grid Network"""
-    def __init__(self, name, lstm_size=128, grid_layer_size=512, N=256, M=12,
-        learning_rate = 1e-5, grad_clip_thresh=1e-5, max_time=100):
+    def __init__(self, name, lstm_size=128, grid_layer_size=512, 
+        N=256, M=12, learning_rate = 1e-5, grad_clip_thresh=1e-5, max_time=100):
         with tf.variable_scope(name):
             
             # Constructing inputs to the lstm layer
-            self.translational_velocity = tf.placeholder(tf.float32, [None, max_time, 1])
-            self.sine_angular_velocity = tf.placeholder(tf.float32, [None, max_time, 1])
-            self.cosine_angular_velocity = tf.placeholder(tf.float32, [None, max_time, 1])
+            self.translational_velocity = tf.placeholder(tf.float32, [None, max_time, 1],
+                name='trans_vel_input')
+            self.sine_angular_velocity = tf.placeholder(tf.float32, [None, max_time, 1],
+                name='sin_ang_vel_input')
+            self.cosine_angular_velocity = tf.placeholder(tf.float32, [None, max_time, 1],
+                name='cos_ang_vel_input')
 
             self.lstm_input = tf.concat([
                 self.translational_velocity,
@@ -49,13 +52,17 @@ class GridNetwork(object):
                 self.cosine_angular_velocity,],
                 axis=2, name='lstm_input')
 
-            self.place_activity = tf.placeholder(tf.float32, [None, N])
-            self.head_dir_activity = tf.placeholder(tf.float32, [None, M])
+            self.place_activity = tf.placeholder(tf.float32, [None, N], 
+                name='place_activity_init')
+            self.head_dir_activity = tf.placeholder(tf.float32, [None, M],
+                name='head_activity_init')
 
             # Initial cell state and hidden state are linear transformations of 
             # place and head direction cells. Cell state and hidden state are 
             # concatenated for LSTMCell(state_is_tuple=False).
 
+            # TODO: lstm_size/2 is arbitraty. should probably be proportion to N and M.
+            # Actually should be same size as y and z?
             self.lstm_init_cell_hidden_state = tf.concat([
                     tf.contrib.layers.fully_connected(self.place_activity, int(lstm_size/2), activation_fn=None),
                     tf.contrib.layers.fully_connected(self.head_dir_activity, int(lstm_size/2), activation_fn=None),
@@ -76,7 +83,7 @@ class GridNetwork(object):
             self.grid_cell_layer = tf.contrib.layers.fully_connected(\
                 self.lstm_output, grid_layer_size, activation_fn=None)
 
-            self.dropout_prob = tf.placeholder(tf.float32)
+            self.dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
             self.dropout = tf.contrib.layers.dropout(self.grid_cell_layer, 
                 keep_prob=self.dropout_prob)
 
@@ -91,8 +98,10 @@ class GridNetwork(object):
             # self.pred_head_dir = tf.contrib.layers.softmax(self.pred_head_dir_logits)
 
             # Construct loss
-            self.place_cell_labels = tf.placeholder(tf.float32, [None, max_time, N])
-            self.head_dir_labels = tf.placeholder(tf.float32, [None, max_time, M])
+            self.place_cell_labels = tf.placeholder(tf.float32, [None, max_time, N],
+                name='place_cell_labels')
+            self.head_dir_labels = tf.placeholder(tf.float32, [None, max_time, M],
+                name='head_dir_labels')
 
             self.place_cell_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
                 labels=self.place_cell_labels,
@@ -117,15 +126,18 @@ class GridNetwork(object):
 
             self.train_op = self.optimizer.apply_gradients(new_gvs)
 
+    # def train_step(self):
+
+
 class PlaceCells(object):
     def __init__(self,N):
         self.N = N
-        self.locations = self._generate_place_cells(N)
+        self.locations = self._generate_place_cells()
         self.sigma = 1 #NOTE: this can't be too small, or you'll get NaN errors
         # Note: In DeepMind Lab there are 32 units to the meter, 
         # so we multiply any plane or position by this number.
 
-    def _generate_place_cells(self, N):
+    def _generate_place_cells(self):
         """
         Generates ground truth locations for place cells.
         TODO: do this for a given maze.
@@ -154,6 +166,9 @@ class PlaceCells(object):
             many_activations.append(self.get_ground_truth_activation(loc))
         return many_activations
 
+    def get_batched_ground_truth_activations(self, batch_x):
+        return np.array([self.get_ground_truth_activations(X) for X in batch_x])
+
 class HeadDirCells(object):
     def __init__(self, M):
         self.M = M
@@ -181,22 +196,27 @@ class HeadDirCells(object):
         """For a list of locations, get activationns of all head dir cells"""
         return [self.get_ground_truth_activation(phi) for phi in X]
 
+    def get_batched_ground_truth_activations(self, batch_x):
+        return np.array([self.get_ground_truth_activations(X) for X in batch_x])
+
 
 class RatTrajectoryGenerator():
-    def __init__(self, env):
+    def __init__(self, env, trajectory_length=100):
         self.env = env
-        self.frame_count = 100
+        self.frame_count = trajectory_length
         self.threshold_distance = 16 #currently abitrary number
         self.threshold_angle = 90
         self.mu = 0 #currently abitrary number
         self.sigma = 12 #currently abitrary number
         self.b = 1 #currently abitrary number
+        self.reset()
+
+    def reset(self):
         self.observation_data = []
         self.position_data = []
         self.direction_data = []
         self.trans_velocity_data = []
         self.ang_velocity_data = []
-
         self.env.reset()
 
     def randomTurn(self, samples=1):
@@ -208,6 +228,12 @@ class RatTrajectoryGenerator():
     def generateTrajectory(self):
         # TODO: Start at random location?
         self.env.reset()
+
+        observations = []
+        positions = []
+        directions = []
+        trans_velocitys = []
+        ang_velocitys = []
 
         prev_yaw = 0
         for i in range(self.frame_count):
@@ -249,58 +275,91 @@ class RatTrajectoryGenerator():
 
             self.env.step(action)
 
-            self.observation_data.append(obs)
-            self.position_data.append(pos)
-            self.direction_data.append(yaw)
-            self.trans_velocity_data.append(vel)
-            self.ang_velocity_data.append(ang_vel)
+            observations.append(obs)
+            positions.append(pos)
+            directions.append(yaw)
+            trans_velocitys.append(vel)
+            ang_velocitys.append(ang_vel)
 
             # TODO: Conversions to all correct units?
+        return observations, positions, directions, \
+            trans_velocitys, ang_velocitys
+
+    def generateBatchOfTrajectories(self, batch_size):
+        self.reset()
+
+        for i in range(batch_size):
+            obs, pos, dire, trans_vel, ang_vel = self.generateTrajectory()
+            self.observation_data.append(obs)
+            self.position_data.append(pos)
+            self.direction_data.append(dire)
+            self.trans_velocity_data.append(trans_vel)
+            self.ang_velocity_data.append(ang_vel)
+
         return self.observation_data, self.position_data, self.direction_data, \
             self.trans_velocity_data, self.ang_velocity_data
 
 
-
 class Trainer(object):
-    def __init__(self, place_cells, head_cells, network, level_script, env,
-        ratTrajectoryGenerator, train_iterations=2):
-        self.place_cells = place_cells
-        self.head_cells = head_cells
-        self.grid_network = network
+    def __init__(self, level_script, env, N=256, M=12, trajectory_length=100,
+        train_iterations=2):
+        self.place_cells = PlaceCells(N)
+        self.head_cells = HeadDirCells(M)
+        self.grid_network = GridNetwork(name="grid_network") # add this later
         self.level_script = level_script
         self.env = env
         self.train_iterations = train_iterations
-        self.rat = ratTrajectoryGenerator
+        self.rat = RatTrajectoryGenerator(env, trajectory_length)
 
     def train(self):
 
-        observation_data, position_data, direction_data, \
-        trans_velocity_data, ang_velocity_data = self.rat.generateTrajectory()
-        cos_vel_data = np.cos(ang_velocity_data)
-        sin_vel_data = np.sin(ang_velocity_data)
+        observation_data, position_data, direction_data, trans_velocity_data, \
+            ang_velocity_data = self.rat.generateBatchOfTrajectories(10)
+        
+        cos_vel_data = np.expand_dims(np.cos(ang_velocity_data), axis=2)
+        sin_vel_data = np.expand_dims(np.sin(ang_velocity_data), axis=2)
+        x_y_positions = np.delete(position_data,2,axis=2)
+        trans_vel_data = np.expand_dims(trans_velocity_data, axis=2)
+        direction_data = np.array(direction_data)
 
-        x_y_positions = np.delete(position_data,2,axis=1)
-        initial_position = x_y_positions[0]
-        initial_direction = direction_data[0]
-        # print("x_y_positions: ", x_y_positions)
+        place_cell_activity_labels = \
+            self.place_cells.get_batched_ground_truth_activations(x_y_positions)
+        head_cell_activity_labels = \
+            self.head_cells.get_batched_ground_truth_activations(direction_data)
+
+        initial_pos_activity = place_cell_activity_labels[:, 0, :]
+        initial_dir_activity = head_cell_activity_labels[:, 0, :]
+
+        # Input data
+        print("cos_vel_data: ", cos_vel_data.shape)
+        print("sin_vel_data: ", sin_vel_data.shape)
+        print("trans_vel_data: ", trans_vel_data.shape)
+
+        # Labels / activities
+        print("x_y_positions: ", x_y_positions.shape)
+        print("direction_data: ", direction_data.shape)        
+        print("place_cell_activity_labels: ", place_cell_activity_labels.shape)
+        print("head_cell_activity_labels: ", head_cell_activity_labels.shape)        
+
+        # LSTM initiation
+        print("initial_pos_activity: ", initial_pos_activity.shape)
+        print("initial_dir_activity: ", initial_dir_activity.shape)
+
+        # TODO: initial_pos_activity / place cells are showing NaNs again
+        # TODO: move this stuff to grid cell
 
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
-            train_iterations = 2
-            # for i in range(train_iterations):
 
-            # Then do the labels
             feed = {
                 self.grid_network.translational_velocity: trans_velocity_data,
                 self.grid_network.cosine_angular_velocity: cos_vel_data,
                 self.grid_network.sine_angular_velocity: sin_vel_data,
-                self.grid_network.place_activity: self.place_cells.locations,
-                self.grid_network.head_dir_activity: self.head_cells.directions,
+                self.grid_network.place_activity: initial_pos_activity,
+                self.grid_network.head_dir_activity: initial_dir_activity,
                 self.grid_network.dropout_prob: .5,
-                self.grid_network.place_cell_labels: 
-                    self.place_cells.get_ground_truth_activation(initial_position),
-                self.grid_network.head_dir_labels: 
-                    self.head_cells.get_ground_truth_activation(initial_direction)
+                self.grid_network.place_cell_labels: place_cell_activity_labels,
+                self.grid_network.head_dir_labels: head_cell_activity_labels,
             }
 
             _, loss = sess.run(
@@ -324,15 +383,15 @@ def run(width, height, level_script, frame_count):
     train_iterations = 2
     N=256
     M=12
+    trajectory_length=100
 
-    place_cells = PlaceCells(N)
-    head_dir_cells = HeadDirCells(M)
+    # place_cells = PlaceCells(N)
+    # head_dir_cells = HeadDirCells(M)
 
-    grid_network = GridNetwork(name="grid_network")
-    rat = RatTrajectoryGenerator(env)
+    # grid_network = GridNetwork(name="grid_network")
+    # rat = RatTrajectoryGenerator(env)
 
-    trainer = Trainer(place_cells, head_dir_cells, grid_network, level_script,
-        env, rat)
+    trainer = Trainer(level_script, env)
     trainer.train()
 
 
