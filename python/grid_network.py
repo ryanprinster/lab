@@ -31,11 +31,15 @@ import deepmind_lab
 import tensorflow as tf
 
 
-
 class GridNetwork(object):
     """Grid Network"""
     def __init__(self, name, lstm_size=128, grid_layer_size=512, 
-        N=256, M=12, learning_rate = 1e-5, grad_clip_thresh=1e-5, max_time=100):
+        N=256, M=12, learning_rate = 1e-3, grad_clip_thresh=1e-5, max_time=100):
+
+        # TODO: share these
+        self.grid_layer_size = grid_layer_size
+
+
         with tf.variable_scope(name):
             
             # Constructing inputs to the lstm layer
@@ -112,22 +116,118 @@ class GridNetwork(object):
 
             self.loss = tf.math.add(self.place_cell_loss, self.head_dir_loss)
 
+            self.optimizer = tf.train.RMSPropOptimizer(\
+                learning_rate=learning_rate, momentum=.9).minimize(self.loss)
 
             # Optimizer
             # TODO: Add weight decay to decoder layers
-            self.optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=.9)
+            # self.optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=.9)
             
-            # Clip gradients
-            gvs = self.optimizer.compute_gradients(self.loss)
-            # Note: currently, last 6 ones here correspond to the grid cell layer
-            # and the place/head cell layers. 
-            capped_gvs = [(tf.clip_by_value(grad, -grad_clip_thresh, grad_clip_thresh), var) for grad, var in gvs[-6:]]
-            new_gvs = gvs[:-6] + capped_gvs
+            # # Clip gradients
+            # gvs = self.optimizer.compute_gradients(self.loss)
+            # # Note: currently, last 6 ones here correspond to the grid cell layer
+            # # and the place/head cell layers. 
+            # capped_gvs = [(tf.clip_by_value(grad, -grad_clip_thresh, grad_clip_thresh), var) for grad, var in gvs[-6:]]
+            # new_gvs = gvs[:-6] + capped_gvs
 
-            self.train_op = self.optimizer.apply_gradients(new_gvs)
+            # self.train_op = self.optimizer.apply_gradients(new_gvs)
 
-    # def train_step(self):
+    def _transform_input_data(self, data, place_cells, head_cells):
+        observation_data, position_data, direction_data, trans_velocity_data, \
+            ang_velocity_data = data 
+        
+        cos_vel_data = np.expand_dims(np.cos(ang_velocity_data), axis=2)
+        sin_vel_data = np.expand_dims(np.sin(ang_velocity_data), axis=2)
+        x_y_positions = np.delete(position_data,2,axis=2)
+        trans_vel_data = np.expand_dims(trans_velocity_data, axis=2)
+        direction_data = np.array(direction_data)
 
+        place_cell_activity_labels = \
+            place_cells.get_batched_ground_truth_activations(x_y_positions)
+        head_cell_activity_labels = \
+            head_cells.get_batched_ground_truth_activations(direction_data)
+
+        initial_pos_activity = place_cell_activity_labels[:, 0, :]
+        initial_dir_activity = head_cell_activity_labels[:, 0, :]
+
+        # # Input data
+        # print("cos_vel_data: ", cos_vel_data.shape)
+        # print("sin_vel_data: ", sin_vel_data.shape)
+        # print("trans_vel_data: ", trans_vel_data.shape)
+
+        # # Labels / activities
+        # print("x_y_positions: ", x_y_positions.shape)
+        # print("direction_data: ", direction_data.shape)        
+        # print("place_cell_activity_labels: ", place_cell_activity_labels.shape)
+        # print("head_cell_activity_labels: ", head_cell_activity_labels.shape)        
+
+        # # LSTM initiation
+        # print("initial_pos_activity: ", initial_pos_activity.shape)
+        # print("initial_dir_activity: ", initial_dir_activity.shape)
+
+        return (trans_vel_data, cos_vel_data, sin_vel_data, initial_pos_activity, 
+        initial_dir_activity, place_cell_activity_labels, 
+        head_cell_activity_labels, x_y_positions)
+
+    def train_step(self, sess, data, place_cells, head_cells):
+
+        trans_vel_data, cos_vel_data, sin_vel_data, initial_pos_activity, \
+        initial_dir_activity, place_cell_activity_labels, \
+        head_cell_activity_labels, x_y_positions = \
+            self._transform_input_data(data, place_cells, head_cells)
+
+        feed = {
+            self.translational_velocity: trans_vel_data,
+            self.cosine_angular_velocity: cos_vel_data,
+            self.sine_angular_velocity: sin_vel_data,
+            self.place_activity: initial_pos_activity,
+            self.head_dir_activity: initial_dir_activity,
+            self.dropout_prob: .5,
+            self.place_cell_labels: place_cell_activity_labels,
+            self.head_dir_labels: head_cell_activity_labels,
+        }
+
+        _, loss = sess.run(
+            [self.optimizer, self.loss], 
+            feed_dict=feed)
+
+        return loss
+
+    def get_grid_layer_activations(self, sess, data, place_cells, head_cells):
+
+        trans_vel_data, cos_vel_data, sin_vel_data, initial_pos_activity, \
+        initial_dir_activity, place_cell_activity_labels, \
+        head_cell_activity_labels, x_y_positions = \
+            self._transform_input_data(data, place_cells, head_cells)
+
+        feed = {
+            self.translational_velocity: trans_vel_data,
+            self.cosine_angular_velocity: cos_vel_data,
+            self.sine_angular_velocity: sin_vel_data,
+            self.place_activity: initial_pos_activity,
+            self.head_dir_activity: initial_dir_activity,
+            self.dropout_prob: 0,
+        }
+
+        grid_layer_activations = sess.run(self.grid_cell_layer, feed_dict=feed)
+        hist = self._grid_activations_to_histogram(grid_layer_activations, 
+            x_y_positions)
+
+        return grid_layer_activations
+
+    def _grid_activations_to_histogram(self, grid_layer_activations, 
+            x_y_positions):
+
+        grid_acts = np.reshape(grid_layer_activations, (-1, self.grid_layer_size))
+        xy_pos = np.reshape(x_y_positions, (-1, 2))
+
+        print("grid_acts shape: ", grid_acts.shape)
+        print("xy_pos shape: ", xy_pos.shape)
+        # or should it be zip?
+        test = np.concatenate((grid_acts, xy_pos), axis=1)
+        print("test shape: ", test[0][0].shape)
+
+        
 
 class PlaceCells(object):
     def __init__(self,N):
@@ -152,6 +252,7 @@ class PlaceCells(object):
 
     def get_ground_truth_activation(self, x):
         """For a given location, get activations of all place cells"""
+        x = x/32. # convert grid world unnits
         activations = []
         for mu in self.locations:
             activation = self._gaussian(x, mu, self.sigma)
@@ -227,6 +328,8 @@ class RatTrajectoryGenerator():
 
     def generateTrajectory(self):
         # TODO: Start at random location?
+        print("Generating Trajectory")
+
         self.env.reset()
 
         observations = []
@@ -296,13 +399,13 @@ class RatTrajectoryGenerator():
             self.trans_velocity_data.append(trans_vel)
             self.ang_velocity_data.append(ang_vel)
 
-        return self.observation_data, self.position_data, self.direction_data, \
-            self.trans_velocity_data, self.ang_velocity_data
+        return (self.observation_data, self.position_data, self.direction_data,
+            self.trans_velocity_data, self.ang_velocity_data)
 
 
 class Trainer(object):
     def __init__(self, level_script, env, N=256, M=12, trajectory_length=100,
-        train_iterations=2):
+        train_iterations=100):
         self.place_cells = PlaceCells(N)
         self.head_cells = HeadDirCells(M)
         self.grid_network = GridNetwork(name="grid_network") # add this later
@@ -313,59 +416,20 @@ class Trainer(object):
 
     def train(self):
 
-        observation_data, position_data, direction_data, trans_velocity_data, \
-            ang_velocity_data = self.rat.generateBatchOfTrajectories(10)
-        
-        cos_vel_data = np.expand_dims(np.cos(ang_velocity_data), axis=2)
-        sin_vel_data = np.expand_dims(np.sin(ang_velocity_data), axis=2)
-        x_y_positions = np.delete(position_data,2,axis=2)
-        trans_vel_data = np.expand_dims(trans_velocity_data, axis=2)
-        direction_data = np.array(direction_data)
-
-        place_cell_activity_labels = \
-            self.place_cells.get_batched_ground_truth_activations(x_y_positions)
-        head_cell_activity_labels = \
-            self.head_cells.get_batched_ground_truth_activations(direction_data)
-
-        initial_pos_activity = place_cell_activity_labels[:, 0, :]
-        initial_dir_activity = head_cell_activity_labels[:, 0, :]
-
-        # Input data
-        print("cos_vel_data: ", cos_vel_data.shape)
-        print("sin_vel_data: ", sin_vel_data.shape)
-        print("trans_vel_data: ", trans_vel_data.shape)
-
-        # Labels / activities
-        print("x_y_positions: ", x_y_positions.shape)
-        print("direction_data: ", direction_data.shape)        
-        print("place_cell_activity_labels: ", place_cell_activity_labels.shape)
-        print("head_cell_activity_labels: ", head_cell_activity_labels.shape)        
-
-        # LSTM initiation
-        print("initial_pos_activity: ", initial_pos_activity.shape)
-        print("initial_dir_activity: ", initial_dir_activity.shape)
-
-        # TODO: initial_pos_activity / place cells are showing NaNs again
-        # TODO: move this stuff to grid cell
-
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
 
-            feed = {
-                self.grid_network.translational_velocity: trans_velocity_data,
-                self.grid_network.cosine_angular_velocity: cos_vel_data,
-                self.grid_network.sine_angular_velocity: sin_vel_data,
-                self.grid_network.place_activity: initial_pos_activity,
-                self.grid_network.head_dir_activity: initial_dir_activity,
-                self.grid_network.dropout_prob: .5,
-                self.grid_network.place_cell_labels: place_cell_activity_labels,
-                self.grid_network.head_dir_labels: head_cell_activity_labels,
-            }
+            # for i in range(self.train_iterations):
+            #     data = self.rat.generateBatchOfTrajectories(10)
 
-            _, loss = sess.run(
-                [self.grid_network.train_op, self.grid_network.loss], 
-                feed_dict=feed)
-            print("loss: ", loss)
+            #     loss = self.grid_network.train_step(sess, data, self.place_cells, 
+            #         self.head_cells)
+            #     print("loss: ", np.mean(loss))
+
+            # TODO: move this testing / session outside of trainer?
+            data = self.rat.generateBatchOfTrajectories(10)
+            self.grid_network.get_grid_layer_activations(sess, data, 
+                self.place_cells, self.head_cells)
 
 
 
@@ -379,8 +443,8 @@ def run(width, height, level_script, frame_count):
                 'DISTANCE_TO_WALL', 'ANGLE_TO_WALL', 'ANGLES']
     env = deepmind_lab.Lab(level_script, obs_types, config=config)
 
-    learning_rate = 1e-5
-    train_iterations = 2
+    learning_rate = 1e-2
+    train_iterations = 10
     N=256
     M=12
     trajectory_length=100
@@ -391,7 +455,7 @@ def run(width, height, level_script, frame_count):
     # grid_network = GridNetwork(name="grid_network")
     # rat = RatTrajectoryGenerator(env)
 
-    trainer = Trainer(level_script, env)
+    trainer = Trainer(level_script, env, train_iterations=train_iterations)
     trainer.train()
 
 
