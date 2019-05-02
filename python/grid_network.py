@@ -349,7 +349,6 @@ class ParallelEnv(object):
         while True:
             # data is a dict mapping inputs to values.
             flag, data = child_conn.recv()
-            print("_env_worker flag: ", flag)
             if flag == 'RESET':
                 env.reset()
                 package = True
@@ -360,24 +359,19 @@ class ParallelEnv(object):
             else:
                 # PANIC!
                 package = False
-            print("_env_worker package: ", package)
             child_conn.send(package)
 
     def _send_then_recv(self, packages):
-        print("ParallelEnv._send_then_recv")
-        print("_send_then_recv packages: ", packages)
         for i, conn in enumerate(self.parent_conns):
             conn.send(packages[i])
         return [conn.recv() for conn in self.parent_conns]
 
     def reset(self):
-        print("ParallelEnv.reset")
         # reset each env.
         packages = [('RESET', {}) for i in range(self.num_envs)]
         return self._send_then_recv(packages)
 
     def observations(self):
-        print("ParallelEnv.observations")
         # return a dict, mapping observation types to arrays of observations
         packages = [('OBSERVATIONS', {}) for i in range(self.num_envs)]
         data = self._send_then_recv(packages)
@@ -388,7 +382,6 @@ class ParallelEnv(object):
         return result
 
     def step(self, action):
-        print("ParallelEnv.observations")
         # takes an array of actions, returns an array of rewards
         packages = [('STEP', {'action': action[i]}) for i in \
             range(self.num_envs)]
@@ -404,15 +397,15 @@ class RatTrajectoryGenerator(object):
         self.mu = 0 #currently abitrary number
         self.sigma = 12 #currently abitrary number
         self.b = 1 #currently abitrary number
-        self.reset()
+        # self.reset()
 
-    def reset(self):
-        self.observation_data = []
-        self.position_data = []
-        self.direction_data = []
-        self.trans_velocity_data = []
-        self.ang_velocity_data = []
-        self.env.reset()
+        # Could use attributes to generate more data on each run
+        # self.observation_data = []
+        # self.position_data = []
+        # self.direction_data = []
+        # self.trans_velocity_data = []
+        # self.ang_velocity_data = []
+        # self.env.reset()
 
     def randomTurn(self, samples=1):
         return np.random.normal(self.mu, self.sigma, samples)
@@ -420,9 +413,9 @@ class RatTrajectoryGenerator(object):
     def randomVelocity(self, samples=1):
         return np.random.rayleigh(self.b, samples)
 
-    def generateTrajectory(self):
-        # TODO: Start at random location?
-        print("Generating Trajectory")
+    def generateTrajectories(self):
+        """ Generates a batch of trajectories, one for each parallel env """
+        print("Generating Trajectories")
 
         self.env.reset()
 
@@ -436,9 +429,9 @@ class RatTrajectoryGenerator(object):
         for i in range(self.frame_count):
             dWall = self.env.observations()['DISTANCE_TO_WALL']
             aWall = self.env.observations()['ANGLE_TO_WALL']
-            vel = abs(self.env.observations()['VEL.TRANS'][1])
+            vel = abs(self.env.observations()['VEL.TRANS'][:,1])
             pos = self.env.observations()['POS']
-            yaw = self.env.observations()['ANGLES'][1]
+            yaw = self.env.observations()['ANGLES'][:,1]
             obs = self.env.observations()['RGB_INTERLEAVED']
             # vel_rot = self.env.observations()['VEL.ROT'][1]
             # Note: On the lua side, game:playerInfo().anglesVel only works
@@ -446,29 +439,36 @@ class RatTrajectoryGenerator(object):
             ang_vel = yaw - prev_yaw # in px/frame
             prev_yaw = yaw
 
-            # Update
-            if dWall < self.threshold_distance and abs(aWall) < self.threshold_angle and aWall <= 360:
-                # If heading towards a wall, slow down and turn away from it
-                desired_angle = np.sign(aWall)*(self.threshold_angle-abs(aWall)) \
-                              + self.randomTurn()      
-                deg_per_pixel = .1043701171875 # degrees per pixel rotated
-                turn_angle = desired_angle - aWall 
-                pixels_to_turn = int(turn_angle / deg_per_pixel)
+            def update_traj(dWall, aWall, vel, pos, yaw, obs):
+                # Update
+                if dWall < self.threshold_distance and abs(aWall) < self.threshold_angle and aWall <= 360:
+                    # If heading towards a wall, slow down and turn away from it
+                    desired_angle = np.sign(aWall)*(self.threshold_angle-abs(aWall)) \
+                                  + self.randomTurn()      
+                    deg_per_pixel = .1043701171875 # degrees per pixel rotated
+                    turn_angle = desired_angle - aWall 
+                    pixels_to_turn = int(turn_angle / deg_per_pixel)
 
-                forward_action = 0
-                prob_speed = dWall / self.threshold_distance
-                if random.uniform(0, 1) < prob_speed:
-                    forward_action = 1
+                    forward_action = 0
+                    prob_speed = dWall / self.threshold_distance
+                    if random.uniform(0, 1) < prob_speed:
+                        forward_action = 1
 
-                action = np.array([pixels_to_turn, 0, 0, forward_action, 0, 0, 0], 
-                    dtype=np.intc)
-            else:
-                # Otherwise, act somewhat randomly
-                desired_turn = self.randomTurn()
-                desired_velocity = self.randomVelocity()
-                pixels_to_turn = int(desired_turn / .1043701171875)
-                action = np.array([pixels_to_turn, 0, 0, 1, 0, 0, 0], 
-                    dtype=np.intc)
+                    action = np.array([pixels_to_turn, 0, 0, forward_action, 0, 0, 0], 
+                        dtype=np.intc)
+                else:
+                    # Otherwise, act somewhat randomly
+                    desired_turn = self.randomTurn()
+                    desired_velocity = self.randomVelocity()
+                    pixels_to_turn = int(desired_turn / .1043701171875)
+                    action = np.array([pixels_to_turn, 0, 0, 1, 0, 0, 0], 
+                        dtype=np.intc)
+
+                return action, obs, pos, yaw, vel
+            
+            data = [update_traj(dWall[j], aWall[j], vel[j], pos[j], yaw[j], obs[j]) \
+                for j in range(self.env.num_envs)]
+            action, obs, pos, yaw, vel = zip(*data)
 
             self.env.step(action)
 
@@ -478,23 +478,38 @@ class RatTrajectoryGenerator(object):
             trans_velocitys.append(vel)
             ang_velocitys.append(ang_vel)
 
-            # TODO: Conversions to all correct units?
-        return observations, positions, directions, \
-            trans_velocitys, ang_velocitys
+        observations = np.swapaxes(observations, 0, 1)
+        positions = np.swapaxes(positions, 0, 1)
+        directions = np.swapaxes(directions, 0, 1)
+        trans_velocitys = np.swapaxes(trans_velocitys, 0, 1)
+        ang_velocitys = np.swapaxes(ang_velocitys, 0, 1)
 
-    def generateBatchOfTrajectories(self, batch_size):
-        self.reset()
+        return (observations, positions, directions, trans_velocitys, \
+            ang_velocitys) # hackyyy
 
-        for i in range(batch_size):
-            obs, pos, dire, trans_vel, ang_vel = self.generateTrajectory()
-            self.observation_data.append(obs)
-            self.position_data.append(pos)
-            self.direction_data.append(dire)
-            self.trans_velocity_data.append(trans_vel)
-            self.ang_velocity_data.append(ang_vel)
+    def generateAboutNTrajectories(self, N):
+        observation_data = []
+        position_data = []
+        direction_data = []
+        trans_velocity_data = []
+        ang_velocity_data = []
 
-        return (self.observation_data, self.position_data, self.direction_data,
-            self.trans_velocity_data, self.ang_velocity_data)
+        for i in range(int(N/self.env.num_envs)):
+            obs, pos, dire, trans_vel, ang_vel = self.generateTrajectories()
+            observation_data.append(obs)
+            position_data.append(pos)
+            direction_data.append(dire)
+            trans_velocity_data.append(trans_vel)
+            ang_velocity_data.append(ang_vel)
+
+        observation_data = np.concatenate(np.array(observation_data), axis=0)
+        position_data = np.concatenate(np.array(position_data), axis=0)
+        direction_data = np.concatenate(np.array(direction_data), axis=0)
+        trans_velocity_data = np.concatenate(np.array(trans_velocity_data), axis=0)
+        ang_velocity_data = np.concatenate(np.array(ang_velocity_data), axis=0)
+
+        return (observation_data, position_data, direction_data,
+            trans_velocity_data, ang_velocity_data)
 
 
 class Trainer(object):
@@ -521,15 +536,16 @@ class Trainer(object):
             #     print("loss: ", np.mean(loss))
 
             # TODO: move this testing / session outside of trainer?
-            data = self.rat.generateBatchOfTrajectories(10)
-            histograms = self.grid_network.get_grid_layer_activations(sess, data, 
-                self.place_cells, self.head_cells)
+            # data = self.rat.generateBatchOfTrajectories(10)
+            # data = self.rat.generateTrajectories()
+            data = self.rat.generateAboutNTrajectories(120)
+            histograms = self.grid_network.get_grid_layer_activations(sess, 
+                data, self.place_cells, self.head_cells)
+
+            print("And we have histograms:")
+            print(histograms.shape)
 
             np.save('/mnt/hgfs/ryanprinster/test/histograms.npy', histograms)
-
-
-
-
 
 
 def run(width, height, level_script, frame_count):
@@ -537,7 +553,7 @@ def run(width, height, level_script, frame_count):
     config = {'width': str(width), 'height': str(height)}
     obs_types = ['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS',
                 'DISTANCE_TO_WALL', 'ANGLE_TO_WALL', 'ANGLES']
-    # env = deepmind_lab.Lab(level_script, obs_types, config=config)
+    env = deepmind_lab.Lab(level_script, obs_types, config=config)
 
     learning_rate = 1e-2
     train_iterations = 10
@@ -545,16 +561,17 @@ def run(width, height, level_script, frame_count):
     M=12
     trajectory_length=100
 
+    # print("SERIAL")
+    # trainerSerial = Trainer(level_script, env)
+    # trainerSerial.train()
+    # # gives 5 x 10 x 100
 
     # TESTING:
-    action = np.array([0, 0, 0, 1, 0, 0, 0], dtype=np.intc)
-    actions = np.array([action, action])
-    env = ParallelEnv(level_script, obs_types, config, 2)
-    print(env.reset())
-    print(env.observations()['RGB_INTERLEAVED'].shape)
-    print(env.step(actions))
+    print("PARALLEL")
+    env = ParallelEnv(level_script, obs_types, config, 4)
 
-
+    trainerParallel = Trainer(level_script, env)
+    trainerParallel.train()
 
 
 

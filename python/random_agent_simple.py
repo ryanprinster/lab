@@ -49,13 +49,6 @@ class RandomAgent(object):
     print("action:", action)
     return action
 
-  def randomTurn(self, mu, sigma, samples):
-    return np.random.normal(mu, sigma, samples)
-
-  def randomVelocity(self, b, samples):
-    return np.random.rayleigh(b, samples)
-
-
 def run(width, height, level_script, frame_count):
   """Spins up an environment and runs the random agent."""
   config = {'width': str(width), 'height': str(height)}
@@ -72,21 +65,25 @@ def run(width, height, level_script, frame_count):
   print(env.observations()['ANGLE_TO_WALL'])
 
 
-  vel_trans_data = []
 
-  for i in range(20):
-    action = agent.step(1)
-    env.step(action, num_steps=1)
-    vel_trans = env.observations()['VEL.TRANS']
-    vel_trans_data.append(vel_trans)
 
-  for i in range(20):
-    action = agent.step(-1)
-    env.step(action, num_steps=1)
-    vel_trans = env.observations()['VEL.TRANS']
-    vel_trans_data.append(vel_trans)
 
-  np.save('/mnt/hgfs/ryanprinster/test/vel_trans_data.npy', np.array(vel_trans_data))
+
+  # vel_trans_data = []
+
+  # for i in range(20):
+  #   action = agent.step(1)
+  #   env.step(action, num_steps=1)
+  #   vel_trans = env.observations()['VEL.TRANS']
+  #   vel_trans_data.append(vel_trans)
+
+  # for i in range(20):
+  #   action = agent.step(-1)
+  #   env.step(action, num_steps=1)
+  #   vel_trans = env.observations()['VEL.TRANS']
+  #   vel_trans_data.append(vel_trans)
+
+  # np.save('/mnt/hgfs/ryanprinster/test/vel_trans_data.npy', np.array(vel_trans_data))
 
 
 if __name__ == '__main__':

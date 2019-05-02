@@ -24,13 +24,13 @@ local pickups_spawn = require 'dmlab.system.pickups_spawn'
 
 local MAP_ENTITIES = [[
 *********
-*       *
-*       *
-*       *
-*   P   *
-*       *
-*       *
-*       *
+*PPPPPPP*
+*PPPPPPP*
+*PPPPPPP*
+*PPPPPPP*
+*PPPPPPP*
+*PPPPPPP*
+*PPPPPPP*
 *********
 ]]
 
@@ -51,7 +51,7 @@ function api:updateSpawnVars(spawnVars)
   if spawnVars.classname == "info_player_start" then
     -- Spawn facing East.
     spawnVars.angle = "0"
-    spawnVars.randomAngleRange = "0"
+    spawnVars.randomAngleRange = "360"
   end
   return spawnVars
 end
@@ -77,6 +77,15 @@ end
 --   -- print(game:playerInfo().anglesVel[3])
 -- --   -- print(game:playerInfo().anglesVel[2])
 -- end
+
+-- local once = 0
+-- function api:modifyControl(actions)
+--   if once == 0 then
+--     game:console('setviewpos 450. 450. 200. 0.')
+--     once = 1
+--   end
+-- end
+
 
 
 function api:getEntityLayer()
