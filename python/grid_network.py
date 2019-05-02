@@ -14,7 +14,7 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 ################################################################################
-"""A simple example of a random agent in deepmind_lab."""
+"""Grid Cell Agent"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -213,21 +213,43 @@ class GridNetwork(object):
         hist = self._grid_activations_to_histogram(grid_layer_activations, 
             x_y_positions)
 
-        return grid_layer_activations
+        return hist
 
     def _grid_activations_to_histogram(self, grid_layer_activations, 
             x_y_positions):
 
         grid_acts = np.reshape(grid_layer_activations, (-1, self.grid_layer_size))
         xy_pos = np.reshape(x_y_positions, (-1, 2))
+        data = zip(xy_pos, grid_acts)        
+        bins = 20
 
-        print("grid_acts shape: ", grid_acts.shape)
-        print("xy_pos shape: ", xy_pos.shape)
-        # or should it be zip?
-        test = np.concatenate((grid_acts, xy_pos), axis=1)
-        print("test shape: ", test[0][0].shape)
+        def xy_coord_to_ind(loc):
+            # Assuming a valid location
+            x_coord, y_coord = loc
+            low, high = 100, 800
+            bins = 20
+            x, y = x_coord-low, y_coord-low
+            size_of_bin = (high-low)/bins
+            x_ind, y_ind = int(x/(size_of_bin+1)), int(y/(size_of_bin+1)) #wont have anything in last bin really?
+            return x_ind, y_ind
 
-        
+        def construct_histogram(data):
+            #janky avoid /0
+            counts = np.ones((self.grid_layer_size, bins, bins))*1e-10
+            activations = np.zeros((self.grid_layer_size, bins, bins))
+            for loc, acts in data:
+                x_ind, y_ind = xy_coord_to_ind(loc)
+                for i, act in enumerate(acts):
+                    activations[i, x_ind, y_ind] += act
+                    counts[i, x_ind, y_ind] += 1
+            histograms = activations/counts
+            return histograms
+
+        return construct_histogram(data)
+
+    # TODO: similar function for head direction cells 
+
+
 
 class PlaceCells(object):
     def __init__(self,N):
@@ -300,8 +322,80 @@ class HeadDirCells(object):
     def get_batched_ground_truth_activations(self, batch_x):
         return np.array([self.get_ground_truth_activations(X) for X in batch_x])
 
+class ParallelEnv(object):
+    def __init__(self, level_script, obs_types, config, num_envs):
+        # TODO: Create ENUMS?
+        self.level_script = level_script
+        self.obs_types = obs_types
+        self.config = config
+        self.num_envs = num_envs
 
-class RatTrajectoryGenerator():
+        self.pipes = [Pipe() for i in range(self.num_envs)]
+        self.parent_conns, self.child_conns = zip(*self.pipes)
+        self.processes = \
+            [Process(target=self._env_worker, 
+                args=(self.child_conns[i],self.level_script, self.obs_types, \
+                    self.config)) 
+            for i in range(self.num_envs)]
+
+        for process in self.processes:
+            process.start()
+
+    def _env_worker(self, child_conn, level_script, obs_types, config):
+        print("ParallelEnv._env_worker")
+        env = deepmind_lab.Lab(level_script, obs_types, config=config)
+        env.reset()
+
+        while True:
+            # data is a dict mapping inputs to values.
+            flag, data = child_conn.recv()
+            print("_env_worker flag: ", flag)
+            if flag == 'RESET':
+                env.reset()
+                package = True
+            elif flag == 'OBSERVATIONS':
+                package = env.observations()
+            elif flag == 'STEP':
+                package = env.step(data['action'])
+            else:
+                # PANIC!
+                package = False
+            print("_env_worker package: ", package)
+            child_conn.send(package)
+
+    def _send_then_recv(self, packages):
+        print("ParallelEnv._send_then_recv")
+        print("_send_then_recv packages: ", packages)
+        for i, conn in enumerate(self.parent_conns):
+            conn.send(packages[i])
+        return [conn.recv() for conn in self.parent_conns]
+
+    def reset(self):
+        print("ParallelEnv.reset")
+        # reset each env.
+        packages = [('RESET', {}) for i in range(self.num_envs)]
+        return self._send_then_recv(packages)
+
+    def observations(self):
+        print("ParallelEnv.observations")
+        # return a dict, mapping observation types to arrays of observations
+        packages = [('OBSERVATIONS', {}) for i in range(self.num_envs)]
+        data = self._send_then_recv(packages)
+        result = {}
+        for obs_type in self.obs_types:
+            result[obs_type] = np.array(
+                [data[i][obs_type] for i in range(self.num_envs)])
+        return result
+
+    def step(self, action):
+        print("ParallelEnv.observations")
+        # takes an array of actions, returns an array of rewards
+        packages = [('STEP', {'action': action[i]}) for i in \
+            range(self.num_envs)]
+        return np.array(self._send_then_recv(packages))
+
+
+class RatTrajectoryGenerator(object):
     def __init__(self, env, trajectory_length=100):
         self.env = env
         self.frame_count = trajectory_length
@@ -428,8 +522,10 @@ class Trainer(object):
 
             # TODO: move this testing / session outside of trainer?
             data = self.rat.generateBatchOfTrajectories(10)
-            self.grid_network.get_grid_layer_activations(sess, data, 
+            histograms = self.grid_network.get_grid_layer_activations(sess, data, 
                 self.place_cells, self.head_cells)
+
+            np.save('/mnt/hgfs/ryanprinster/test/histograms.npy', histograms)
 
 
 
@@ -441,7 +537,7 @@ def run(width, height, level_script, frame_count):
     config = {'width': str(width), 'height': str(height)}
     obs_types = ['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS',
                 'DISTANCE_TO_WALL', 'ANGLE_TO_WALL', 'ANGLES']
-    env = deepmind_lab.Lab(level_script, obs_types, config=config)
+    # env = deepmind_lab.Lab(level_script, obs_types, config=config)
 
     learning_rate = 1e-2
     train_iterations = 10
@@ -449,49 +545,17 @@ def run(width, height, level_script, frame_count):
     M=12
     trajectory_length=100
 
-    # place_cells = PlaceCells(N)
-    # head_dir_cells = HeadDirCells(M)
 
-    # grid_network = GridNetwork(name="grid_network")
-    # rat = RatTrajectoryGenerator(env)
-
-    trainer = Trainer(level_script, env, train_iterations=train_iterations)
-    trainer.train()
-
-
-
-
-    # Testing stuff
-    # print("place_cells: ", place_cells.locations)
-    # print("head_dir_cells: ", head_dir_cells.directions)
-
-    # loc = [450/32., 450/32.]
-    # dir_ = 0
-    # print("place cell activation wrt:", loc)
-    # print("head dir cell activation wrt:", dir_)
-
-    # print("place_cells_activations: ", 
-    #     place_cells.get_ground_truth_activation(loc))
-    # print("head_dir_cells_activations: ", 
-    #     head_dir_cells.get_ground_truth_activation(dir_))
-
-    # locs = [[450/32., 450/32.], [150/32., 150/32.]]
-    # dirs = [0,1]
-
-    # print("place_cells_activations: ", 
-    #     place_cells.get_ground_truth_activations(locs))
-    # print("head_dir_cells_activations: ", 
-    #     head_dir_cells.get_ground_truth_activations(dirs))
-
-
-    # print("obs_data shape:", obs_data.shape)
-    # print("pos_data shape:", pos_data.shape)
-    # print("dir_data shape:", dir_data.shape)
+    # TESTING:
+    action = np.array([0, 0, 0, 1, 0, 0, 0], dtype=np.intc)
+    actions = np.array([action, action])
+    env = ParallelEnv(level_script, obs_types, config, 2)
+    print(env.reset())
+    print(env.observations()['RGB_INTERLEAVED'].shape)
+    print(env.step(actions))
 
 
 
-
-  
 
 
 if __name__ == '__main__':
