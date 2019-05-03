@@ -34,7 +34,7 @@ import tensorflow as tf
 class GridNetwork(object):
     """Grid Network"""
     def __init__(self, name, lstm_size=128, grid_layer_size=512, 
-        N=256, M=12, learning_rate = 1e-3, grad_clip_thresh=1e-5, max_time=100):
+        N=256, M=12, learning_rate=1e-3, grad_clip_thresh=1e-5, max_time=100):
 
         # TODO: share these
         self.grid_layer_size = grid_layer_size
@@ -119,15 +119,19 @@ class GridNetwork(object):
             self.optimizer = tf.train.RMSPropOptimizer(\
                 learning_rate=learning_rate, momentum=.9).minimize(self.loss)
 
-            # Optimizer
-            # TODO: Add weight decay to decoder layers
-            # self.optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate, momentum=.9)
+            # # Optimizer
+            # # TODO: Add weight decay to decoder layers
+            # self.optimizer = tf.train.RMSPropOptimizer(\
+            #     learning_rate=learning_rate, momentum=.9)
             
             # # Clip gradients
             # gvs = self.optimizer.compute_gradients(self.loss)
             # # Note: currently, last 6 ones here correspond to the grid cell layer
             # # and the place/head cell layers. 
-            # capped_gvs = [(tf.clip_by_value(grad, -grad_clip_thresh, grad_clip_thresh), var) for grad, var in gvs[-6:]]
+            # capped_gvs = [(tf.clip_by_value(grad, -grad_clip_thresh, \
+            #     grad_clip_thresh), var) \
+            #     for grad, var in gvs[-6:]]
+
             # new_gvs = gvs[:-6] + capped_gvs
 
             # self.train_op = self.optimizer.apply_gradients(new_gvs)
@@ -216,18 +220,16 @@ class GridNetwork(object):
         return hist
 
     def _grid_activations_to_histogram(self, grid_layer_activations, 
-            x_y_positions):
+            x_y_positions, bins=32):
 
         grid_acts = np.reshape(grid_layer_activations, (-1, self.grid_layer_size))
         xy_pos = np.reshape(x_y_positions, (-1, 2))
         data = zip(xy_pos, grid_acts)        
-        bins = 20
 
         def xy_coord_to_ind(loc):
             # Assuming a valid location
             x_coord, y_coord = loc
             low, high = 100, 800
-            bins = 20
             x, y = x_coord-low, y_coord-low
             size_of_bin = (high-low)/bins
             x_ind, y_ind = int(x/(size_of_bin+1)), int(y/(size_of_bin+1)) #wont have anything in last bin really?
@@ -248,7 +250,6 @@ class GridNetwork(object):
         return construct_histogram(data)
 
     # TODO: similar function for head direction cells 
-
 
 
 class PlaceCells(object):
@@ -505,7 +506,8 @@ class RatTrajectoryGenerator(object):
         observation_data = np.concatenate(np.array(observation_data), axis=0)
         position_data = np.concatenate(np.array(position_data), axis=0)
         direction_data = np.concatenate(np.array(direction_data), axis=0)
-        trans_velocity_data = np.concatenate(np.array(trans_velocity_data), axis=0)
+        trans_velocity_data = np.concatenate(np.array(trans_velocity_data), \
+            axis=0)
         ang_velocity_data = np.concatenate(np.array(ang_velocity_data), axis=0)
 
         return (observation_data, position_data, direction_data,
@@ -513,64 +515,88 @@ class RatTrajectoryGenerator(object):
 
 
 class Trainer(object):
-    def __init__(self, level_script, env, N=256, M=12, trajectory_length=100,
-        train_iterations=100):
+    def __init__(self, 
+        base_path,
+        unique_exp_name, # string indicating experiment
+        restore=False,
+        N=256, 
+        M=12, 
+        trajectory_length=100, 
+        train_iterations=5000, 
+        learning_rate=1e-3, 
+        num_envs=4,
+        level_script='tests/empty_room_test', 
+        obs_types=['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS',
+                'DISTANCE_TO_WALL', 'ANGLE_TO_WALL', 'ANGLES'],
+        config={'width': str(80), 'height': str(80)}):
+
+        self.env = ParallelEnv(level_script, obs_types, config, num_envs)
         self.place_cells = PlaceCells(N)
         self.head_cells = HeadDirCells(M)
-        self.grid_network = GridNetwork(name="grid_network") # add this later
-        self.level_script = level_script
-        self.env = env
+        self.grid_network = GridNetwork(name="grid_network", 
+            learning_rate=learning_rate, max_time=trajectory_length) # add this later
+        self.rat = RatTrajectoryGenerator(self.env, trajectory_length)
+
         self.train_iterations = train_iterations
-        self.rat = RatTrajectoryGenerator(env, trajectory_length)
+
+        self.base_path = base_path
+        self.experiments_save_path = self.base_path + 'experiments/'
+        self.unique_exp_save_path = self.experiments_save_path \
+            + 'exp_' + unique_exp_name + '/'
+
+        self.restore = restore
+        self.saver = tf.train.Saver()
 
     def train(self):
 
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
 
-            # for i in range(self.train_iterations):
-            #     data = self.rat.generateBatchOfTrajectories(10)
+            if self.restore:
+                self.saver.restore(sess, \
+                    tf.train.latest_checkpoint(self.unique_exp_save_path))
+            """
 
-            #     loss = self.grid_network.train_step(sess, data, self.place_cells, 
-            #         self.head_cells)
-            #     print("loss: ", np.mean(loss))
+            say N envs, N*10 trajectories / batch = 10s
+            Nenvs* 100steps/sec = 100*N steps/s
+            10 minutes to reach 1mil
+            estimated this will take 40+ hours on 16 cpus w/ min bottleneck of 
+            1s/ reset
 
-            # TODO: move this testing / session outside of trainer?
-            # data = self.rat.generateBatchOfTrajectories(10)
-            # data = self.rat.generateTrajectories()
-            data = self.rat.generateAboutNTrajectories(120)
+            to reach 100 mil (16+ hours) need 1mil = iterations*batchsize
+            """
+
+            for i in range(self.train_iterations):
+                print("Train iter: ", i)
+                data = self.rat.generateAboutNTrajectories(160)
+                loss = self.grid_network.train_step(sess, data, self.place_cells, 
+                    self.head_cells)
+                print("loss: ", np.mean(loss))
+
+                if i % 10 == 0:
+                    self.saver.save(sess, self.unique_exp_save_path)
+
+            print("Seeing if there are grid cells:")
+            data = self.rat.generateAboutNTrajectories(160)
             histograms = self.grid_network.get_grid_layer_activations(sess, 
                 data, self.place_cells, self.head_cells)
 
             print("And we have histograms:")
             print(histograms.shape)
 
-            np.save('/mnt/hgfs/ryanprinster/test/histograms.npy', histograms)
+            np.save(self.unique_exp_save_path + 'place_cell_histograms.npy', \
+                histograms)
 
 
-def run(width, height, level_script, frame_count):
+def run(level_script, base_path, num_envs):
     """Spins up an environment and runs the agent."""
-    config = {'width': str(width), 'height': str(height)}
-    obs_types = ['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS',
-                'DISTANCE_TO_WALL', 'ANGLE_TO_WALL', 'ANGLES']
-    env = deepmind_lab.Lab(level_script, obs_types, config=config)
-
-    learning_rate = 1e-2
-    train_iterations = 10
-    N=256
-    M=12
-    trajectory_length=100
-
-    # print("SERIAL")
-    # trainerSerial = Trainer(level_script, env)
-    # trainerSerial.train()
-    # # gives 5 x 10 x 100
 
     # TESTING:
-    print("PARALLEL")
-    env = ParallelEnv(level_script, obs_types, config, 4)
-
-    trainerParallel = Trainer(level_script, env)
+    # base_path = '/mnt/hgfs/ryanprinster/data/'
+    trainerParallel = Trainer(
+        base_path=base_path,
+        unique_exp_name='test',
+        num_envs=num_envs)
     trainerParallel.train()
 
 
@@ -587,8 +613,12 @@ if __name__ == '__main__':
                       help='Set the runfiles path to find DeepMind Lab data')
     parser.add_argument('--level_script', type=str, default='tests/empty_room_test',
                       help='The environment level script to load')
+    parser.add_argument('--base_path', type=str, default='/om/user/prinster/lab/data/',
+                      help='base_path')
+    parser.add_argument('--num_envs', type=str, default=4,
+                      help='num environments to run in parallel')
 
     args = parser.parse_args()
     if args.runfiles_path:
         deepmind_lab.set_runfiles_path(args.runfiles_path)
-    run(args.width, args.height, args.level_script, args.frame_count)
+    run(args.level_script, args.base_path, args.num_envs)
