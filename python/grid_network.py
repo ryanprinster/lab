@@ -136,6 +136,13 @@ class GridNetwork(object):
 
             # self.train_op = self.optimizer.apply_gradients(new_gvs)
 
+            # Summary Stuff
+            self.loss_summary = tf.summary.histogram('loss', self.loss)
+            self.loss_summary = tf.summary.histogram('mean loss', tf.math.reduce_mean(self.loss))
+            self.summary = tf.summary.merge_all()
+
+
+
     def _transform_input_data(self, data, place_cells, head_cells):
         observation_data, position_data, direction_data, trans_velocity_data, \
             ang_velocity_data = data 
@@ -191,11 +198,11 @@ class GridNetwork(object):
             self.head_dir_labels: head_cell_activity_labels,
         }
 
-        _, loss = sess.run(
-            [self.optimizer, self.loss], 
+        _, loss, summary = sess.run(
+            [self.optimizer, self.loss, self.summary], 
             feed_dict=feed)
 
-        return loss
+        return loss, summary
 
     def get_grid_layer_activations(self, sess, data, place_cells, head_cells):
 
@@ -555,6 +562,8 @@ class Trainer(object):
             if self.restore:
                 self.saver.restore(sess, \
                     tf.train.latest_checkpoint(self.unique_exp_save_path))
+
+            train_writer = tf.summary.FileWriter(self.unique_exp_save_path)
             """
 
             say N envs, N*10 trajectories / batch = 10s
@@ -568,9 +577,10 @@ class Trainer(object):
 
             for i in range(self.train_iterations):
                 print("Train iter: ", i)
-                data = self.rat.generateAboutNTrajectories(160)
-                loss = self.grid_network.train_step(sess, data, self.place_cells, 
+                data = self.rat.generateAboutNTrajectories(16)
+                loss, summary = self.grid_network.train_step(sess, data, self.place_cells, 
                     self.head_cells)
+                train_writer.add_summary(summary, i)
                 print("loss: ", np.mean(loss))
 
                 if i % 10 == 0:
@@ -588,17 +598,19 @@ class Trainer(object):
                 histograms)
 
 
-def run(level_script, base_path, num_envs):
+def run(level_script, base_path, num_envs, learning_rate, exp_name):
     """Spins up an environment and runs the agent."""
 
     # TESTING:
-    # base_path = '/mnt/hgfs/ryanprinster/data/'
+    base_path = '/mnt/hgfs/ryanprinster/data/'
+    num_envs = 4
     trainerParallel = Trainer(
         base_path=base_path,
-        unique_exp_name='test',
-        num_envs=num_envs)
+        unique_exp_name=exp_name,
+        num_envs=num_envs,
+        learning_rate=learning_rate)
     trainerParallel.train()
-
+    # TODO - tensorboard stuff
 
 
 if __name__ == '__main__':
@@ -613,12 +625,17 @@ if __name__ == '__main__':
                       help='Set the runfiles path to find DeepMind Lab data')
     parser.add_argument('--level_script', type=str, default='tests/empty_room_test',
                       help='The environment level script to load')
-    parser.add_argument('--base_path', type=str, default='/om/user/prinster/lab/data/',
+    parser.add_argument('--base_path', type=str, default='/om/user/prinster/lab/my_data/',
                       help='base_path')
-    parser.add_argument('--num_envs', type=str, default=4,
+    parser.add_argument('--num_envs', type=str, default=16,
                       help='num environments to run in parallel')
+    parser.add_argument('--learning_rate', type=str, default=1e-3,
+                      help='learning_rate')
+    parser.add_argument('--exp_name', type=str, default='test',
+                      help='exp_name')
 
     args = parser.parse_args()
     if args.runfiles_path:
         deepmind_lab.set_runfiles_path(args.runfiles_path)
-    run(args.level_script, args.base_path, args.num_envs)
+    run(args.level_script, args.base_path, args.num_envs, args.learning_rate, \
+        args.exp_name)
