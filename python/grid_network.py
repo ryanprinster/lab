@@ -604,6 +604,7 @@ def run(level_script, base_path, num_envs, learning_rate, exp_name):
     # TESTING:
     # base_path = '/mnt/hgfs/ryanprinster/data/'
     # num_envs = 4
+    learning_rate = 1e-3
     trainerParallel = Trainer(
         base_path=base_path,
         unique_exp_name=exp_name,
