@@ -23,6 +23,7 @@ import argparse
 import random
 import numpy as np
 import six
+import itertools
 
 from multiprocessing import Process, Queue, Pipe
 
@@ -260,10 +261,10 @@ class GridNetwork(object):
 
 
 class PlaceCells(object):
-    def __init__(self,N):
+    def __init__(self,N,sigma=1):
         self.N = N
         self.locations = self._generate_place_cells()
-        self.sigma = 1 #NOTE: this can't be too small, or you'll get NaN errors
+        self.sigma = sigma #NOTE: this can't be too small, or you'll get NaN errors
         # Note: In DeepMind Lab there are 32 units to the meter, 
         # so we multiply any plane or position by this number.
 
@@ -522,6 +523,10 @@ class RatTrajectoryGenerator(object):
 
 
 class Trainer(object):
+    """
+    Class meant to run the training pipeline for the grid network with one set
+    of hyper parameters.
+    """
     def __init__(self, 
         base_path,
         unique_exp_name, # string indicating experiment
@@ -530,21 +535,24 @@ class Trainer(object):
         M=12, 
         trajectory_length=100, 
         train_iterations=5000, 
-        learning_rate=1e-3, 
+        learning_rate=1e-3,
+        batch_size=16, 
         num_envs=4,
+        sigma=1,
         level_script='tests/empty_room_test', 
         obs_types=['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS',
                 'DISTANCE_TO_WALL', 'ANGLE_TO_WALL', 'ANGLES'],
         config={'width': str(80), 'height': str(80)}):
 
         self.env = ParallelEnv(level_script, obs_types, config, num_envs)
-        self.place_cells = PlaceCells(N)
+        self.place_cells = PlaceCells(N, sigma)
         self.head_cells = HeadDirCells(M)
         self.grid_network = GridNetwork(name="grid_network", 
             learning_rate=learning_rate, max_time=trajectory_length) # add this later
         self.rat = RatTrajectoryGenerator(self.env, trajectory_length)
 
         self.train_iterations = train_iterations
+        self.batch_size = batch_size
 
         self.base_path = base_path
         self.experiments_save_path = self.base_path + 'experiments/'
@@ -577,7 +585,7 @@ class Trainer(object):
 
             for i in range(self.train_iterations):
                 print("Train iter: ", i)
-                data = self.rat.generateAboutNTrajectories(16)
+                data = self.rat.generateAboutNTrajectories(self.batch_size)
                 loss, summary = self.grid_network.train_step(sess, data, self.place_cells, 
                     self.head_cells)
                 train_writer.add_summary(summary, i)
@@ -587,7 +595,7 @@ class Trainer(object):
                     self.saver.save(sess, self.unique_exp_save_path)
 
             print("Seeing if there are grid cells:")
-            data = self.rat.generateAboutNTrajectories(160)
+            data = self.rat.generateAboutNTrajectories(5*self.batch_size)
             histograms = self.grid_network.get_grid_layer_activations(sess, 
                 data, self.place_cells, self.head_cells)
 
@@ -598,20 +606,64 @@ class Trainer(object):
                 histograms)
 
 
-def run(level_script, base_path, num_envs, learning_rate, exp_name):
-    """Spins up an environment and runs the agent."""
+class SlurmManager(object):
+    """
+    Class meant to deal with running multiple jobs with different hyperparams 
+    using Slurm.
+    """
 
-    # TESTING:
+    def __init__(self, slurm_array_id, base_path):
+        """
+        For now, let us assume slurm_task_id in {0, num_hyperparam_combos-1}.
+        """
+        self.slurm_array_id = slurm_array_id
+        self.base_path = base_path
+
+    def run(self):
+        # TODO: make a more elegant, scalable way to take in different 
+        # sets of hyperparams for different tasks. But for now:
+
+        """
+        hyperparams = [
+            learning_rate, 
+            batch_size, 
+            train_iterations, 
+            num_envs, 
+            sigma, 
+        ]
+        """
+
+        hyperparams = [
+            [1e-3, 1e-4, 1e-5],
+            [160],
+            [100000],
+            [16],
+            [3, 1, .5],
+        ]
+
+        combinations = list(itertools.product(*hyperparams))
+        print("Hyperparam combos: ", combinations)
+        hyperparam_selection = combinations[self.slurm_array_id]
+        print("Hyperparam selection: ", hyperparam_selection)
+        trainerParallel = Trainer(
+            base_path=self.base_path,
+            unique_exp_name='job_' + str(self.slurm_array_id),
+            learning_rate=hyperparam_selection[0],
+            batch_size=hyperparam_selection[1],
+            train_iterations=hyperparam_selection[2],
+            num_envs=hyperparam_selection[3],
+            sigma=hyperparam_selection[4])
+        trainerParallel.train()
+
+
+
+def run(slurm_array_id, base_path):
+
+    # TESTING LOCALLY:
     # base_path = '/mnt/hgfs/ryanprinster/data/'
-    # num_envs = 4
-    learning_rate = 1e-3
-    trainerParallel = Trainer(
-        base_path=base_path,
-        unique_exp_name=exp_name,
-        num_envs=num_envs,
-        learning_rate=learning_rate)
-    trainerParallel.train()
-    # TODO - tensorboard stuff
+    # slurm_array_id = 0
+
+    SlurmManager(slurm_array_id, base_path).run()
 
 
 if __name__ == '__main__':
@@ -634,9 +686,10 @@ if __name__ == '__main__':
                       help='learning_rate')
     parser.add_argument('--exp_name', type=str, default='test',
                       help='exp_name')
+    parser.add_argument('--slurm_array_id', type=int, default=0,
+                      help='id provided by slurm for which experiment to run')
 
     args = parser.parse_args()
     if args.runfiles_path:
         deepmind_lab.set_runfiles_path(args.runfiles_path)
-    run(args.level_script, args.base_path, args.num_envs, args.learning_rate, \
-        args.exp_name)
+    run(args.slurm_array_id, args.base_path)
