@@ -612,11 +612,11 @@ class SlurmManager(object):
     using Slurm.
     """
 
-    def __init__(self, slurm_array_id, base_path):
+    def __init__(self, slurm_array_index, base_path):
         """
         For now, let us assume slurm_task_id in {0, num_hyperparam_combos-1}.
         """
-        self.slurm_array_id = slurm_array_id
+        self.slurm_array_index = slurm_array_index
         self.base_path = base_path
 
     def run(self):
@@ -643,11 +643,11 @@ class SlurmManager(object):
 
         combinations = list(itertools.product(*hyperparams))
         print("Hyperparam combos: ", combinations)
-        hyperparam_selection = combinations[self.slurm_array_id]
+        hyperparam_selection = combinations[self.slurm_array_index]
         print("Hyperparam selection: ", hyperparam_selection)
         trainerParallel = Trainer(
             base_path=self.base_path,
-            unique_exp_name='job_' + str(self.slurm_array_id),
+            unique_exp_name='job_' + str(self.slurm_array_index),
             learning_rate=hyperparam_selection[0],
             batch_size=hyperparam_selection[1],
             train_iterations=hyperparam_selection[2],
@@ -663,7 +663,7 @@ def run(slurm_array_id, base_path):
     # base_path = '/mnt/hgfs/ryanprinster/data/'
     # slurm_array_id = 0
 
-    SlurmManager(slurm_array_id, base_path).run()
+    SlurmManager(slurm_array_index, base_path).run()
 
 
 if __name__ == '__main__':
@@ -686,10 +686,10 @@ if __name__ == '__main__':
                       help='learning_rate')
     parser.add_argument('--exp_name', type=str, default='test',
                       help='exp_name')
-    parser.add_argument('--slurm_array_id', type=int, default=0,
+    parser.add_argument('--slurm_array_index', type=int, default=0,
                       help='id provided by slurm for which experiment to run')
 
     args = parser.parse_args()
     if args.runfiles_path:
         deepmind_lab.set_runfiles_path(args.runfiles_path)
-    run(args.slurm_array_id, args.base_path)
+    run(args.slurm_array_index, args.base_path)
