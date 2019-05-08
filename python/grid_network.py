@@ -24,6 +24,7 @@ import random
 import numpy as np
 import six
 import itertools
+import sys
 
 from multiprocessing import Process, Queue, Pipe
 
@@ -425,6 +426,7 @@ class RatTrajectoryGenerator(object):
     def generateTrajectories(self):
         """ Generates a batch of trajectories, one for each parallel env """
         print("Generating Trajectories")
+        sys.stdout.flush()
 
         self.env.reset()
 
@@ -563,7 +565,7 @@ class Trainer(object):
         self.saver = tf.train.Saver()
 
     def train(self):
-
+        print("Trainer.train")
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
 
@@ -585,6 +587,7 @@ class Trainer(object):
 
             for i in range(self.train_iterations):
                 print("Train iter: ", i)
+                sys.stdout.flush()
                 data = self.rat.generateAboutNTrajectories(self.batch_size)
                 loss, summary = self.grid_network.train_step(sess, data, self.place_cells, 
                     self.head_cells)
@@ -594,16 +597,14 @@ class Trainer(object):
                 if i % 10 == 0:
                     self.saver.save(sess, self.unique_exp_save_path)
 
-            print("Seeing if there are grid cells:")
-            data = self.rat.generateAboutNTrajectories(5*self.batch_size)
-            histograms = self.grid_network.get_grid_layer_activations(sess, 
-                data, self.place_cells, self.head_cells)
+                    histograms = self.grid_network.get_grid_layer_activations(sess, 
+                        data, self.place_cells, self.head_cells)
 
-            print("And we have histograms:")
-            print(histograms.shape)
+                    print("And we have histograms:")
+                    print(histograms.shape)
 
-            np.save(self.unique_exp_save_path + 'place_cell_histograms.npy', \
-                histograms)
+                    np.save(self.unique_exp_save_path + 'place_cell_histograms.npy', \
+                        histograms)
 
 
 class SlurmManager(object):
@@ -635,9 +636,9 @@ class SlurmManager(object):
 
         hyperparams = [
             [1e-3, 1e-4, 1e-5],
-            [160],
+            [40],
             [100000],
-            [16],
+            [4],
             [3, 1, .5],
         ]
 
@@ -657,11 +658,11 @@ class SlurmManager(object):
 
 
 
-def run(slurm_array_id, base_path):
+def run(slurm_array_index, base_path):
 
     # TESTING LOCALLY:
-    # base_path = '/mnt/hgfs/ryanprinster/data/'
-    # slurm_array_id = 0
+    base_path = '/mnt/hgfs/ryanprinster/data/'
+    slurm_array_index = 1
 
     SlurmManager(slurm_array_index, base_path).run()
 
