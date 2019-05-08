@@ -987,7 +987,7 @@ py_binary(
 
 py_binary(
     name = "python_random_agent_simple",
-    srcs = ["python/random_agent_simple.py"],
+    srcs = ["python/random_agent_simple.py", "python/grid_network.py"],
     data = [":deepmind_lab.so"],
     main = "python/random_agent_simple.py",
     visibility = ["//python/tests:__subpackages__"],
@@ -1050,7 +1050,11 @@ py_binary(
 
 py_binary(
     name = "python_grid_network",
-    srcs = ["python/grid_network.py"],
+    srcs = [
+        "python/grid_network.py", 
+        "python/environment.py", 
+        "python/rat_trajectory_generator.py",
+        "python/cells.py"],
     data = [":deepmind_lab.so"],
     main = "python/grid_network.py",
     visibility = ["//python/tests:__subpackages__"],
@@ -1058,10 +1062,28 @@ py_binary(
 )
 
 py_binary(
-    name = "python_generate_rat_trajectory",
-    srcs = ["python/generate_rat_trajectory.py"],
+    name = "python_environment",
+    srcs = ["python/environment.py"],
     data = [":deepmind_lab.so"],
-    main = "python/generate_rat_trajectory.py",
+    main = "python/environment.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
+
+py_binary(
+    name = "python_rat_trajectory_generator",
+    srcs = ["python/rat_trajectory_generator.py"],
+    data = [":deepmind_lab.so"],
+    main = "python/rat_trajectory_generator.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
+
+py_binary(
+    name = "python_cells",
+    srcs = ["python/cells.py"],
+    data = [":deepmind_lab.so"],
+    main = "python/cells.py",
     visibility = ["//python/tests:__subpackages__"],
     deps = ["@six_archive//:six"],
 )

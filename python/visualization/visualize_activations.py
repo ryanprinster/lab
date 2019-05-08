@@ -11,7 +11,7 @@ print(histograms.shape)
 def plot_positional_activations(histograms):
     w=20
     h=20
-    fig=plt.figure(figsize=(10, 10))
+    fig=plt.figure(figsize=(11, 11))
     columns = 32
     rows = 16
     for i in range(1, columns*rows +1):

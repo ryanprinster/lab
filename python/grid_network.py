@@ -25,12 +25,12 @@ import numpy as np
 import six
 import itertools
 import sys
+import tensorflow as tf
 
 from multiprocessing import Process, Queue, Pipe
 
 import deepmind_lab
-
-import tensorflow as tf
+from python import environment, rat_trajectory_generator, cells
 
 
 class GridNetwork(object):
@@ -260,268 +260,71 @@ class GridNetwork(object):
 
     # TODO: similar function for head direction cells 
 
-
-class PlaceCells(object):
-    def __init__(self,N,sigma=1):
+class VisionModule(object):
+    def __init__(self, name='VisionModule', state_size=[3,80,80], max_time=100,
+        N=256, M=12, learning_rate=1e-3):
+        self.name = name
+        self.state_size = state_size
+        self.max_time = max_time
         self.N = N
-        self.locations = self._generate_place_cells()
-        self.sigma = sigma #NOTE: this can't be too small, or you'll get NaN errors
-        # Note: In DeepMind Lab there are 32 units to the meter, 
-        # so we multiply any plane or position by this number.
-
-    def _generate_place_cells(self):
-        """
-        Generates ground truth locations for place cells.
-        TODO: do this for a given maze.
-        """
-        low, high = 100/32., 800/32.
-        place_cell_locations = np.random.uniform(low, high, (self.N, 2)) # place cell centers
-        return place_cell_locations
-
-    def _gaussian(self, x, mu, sig):
-        return np.exp(-np.sum(np.power(x - mu, 2.)) / (2 * np.power(sig, 2.)))
-            # problem might be in the np.sum
-
-    def get_ground_truth_activation(self, x):
-        """For a given location, get activations of all place cells"""
-        x = x/32. # convert grid world unnits
-        activations = []
-        for mu in self.locations:
-            activation = self._gaussian(x, mu, self.sigma)
-            activations.append(activation)
-        normalized_activations = activations/np.sum(np.array(activations))
-        return normalized_activations
-
-    def get_ground_truth_activations(self, X):
-        """ For a list of locations, get activations of all place cells"""
-        many_activations = []
-        for loc in X:
-            many_activations.append(self.get_ground_truth_activation(loc))
-        return many_activations
-
-    def get_batched_ground_truth_activations(self, batch_x):
-        return np.array([self.get_ground_truth_activations(X) for X in batch_x])
-
-class HeadDirCells(object):
-    def __init__(self, M):
         self.M = M
-        self.directions= self._generate_head_cells(M)
-        self.k = 20
+        self.learning_rate = learning_rate
+        with tf.variable_scope(name):
+            # Todo: squish inputs into one batch dimension
 
-    def _generate_head_cells(self, M):
-        # just doing this in degrees
-        # actually need to do this in radians
-        low, high = -np.pi, np.pi
-        head_cell_directions = np.random.uniform(low, high, self.M)
-        return head_cell_directions
+            # Input images
+            self.inputs_ = tf.placeholder(tf.float32, \
+                [None, max_time, state_size[0], state_size[1], state_size[2]], \
+                name='inputs')
 
-    def _von_mises(self, phi, mu):
-        return np.exp(self.k * np.cos(phi-mu))
+            self.inputs = tf.reshape(self.inputs_, \
+                [-1, state_size[0], state_size[1], state_size[2]])
 
-    def get_ground_truth_activation(self, phi):
-        """For a given head direction, get activations of all head dir cells"""
-        activations = []
-        for mu in self.directions:
-            activations.append(self._von_mises(phi, mu))
-        return activations/np.sum(np.array(activations))
+            # Conv layers
+            # ReLU and Padding are defaults.
+            # Same network used for actor-learner, but weights not shared.
+            self.conv1 = tf.contrib.layers.conv2d(self.inputs, 16, kernel_size=5, stride=2)
+            self.conv2 = tf.contrib.layers.conv2d(self.conv1, 32, kernel_size=5, stride=2)
+            self.conv3 = tf.contrib.layers.conv2d(self.conv2, 64, kernel_size=5, stride=2)
+            self.conv4 = tf.contrib.layers.conv2d(self.conv3, 128, kernel_size=5, stride=2)
 
-    def get_ground_truth_activations(self, X):
-        """For a list of locations, get activationns of all head dir cells"""
-        return [self.get_ground_truth_activation(phi) for phi in X]
+            # Place and head cells
+            self.pred_place_cell_logits = tf.contrib.layers.fully_connected(\
+                self.conv4, N)
 
-    def get_batched_ground_truth_activations(self, batch_x):
-        return np.array([self.get_ground_truth_activations(X) for X in batch_x])
+            self.pred_head_dir_logits = tf.contrib.layers.fully_connected(\
+                self.conv4, M)
 
-class ParallelEnv(object):
-    def __init__(self, level_script, obs_types, config, num_envs):
-        # TODO: Create ENUMS?
-        self.level_script = level_script
-        self.obs_types = obs_types
-        self.config = config
-        self.num_envs = num_envs
+            # Construct loss
+            self.place_cell_labels = tf.placeholder(tf.float32, [None, max_time, N],
+                name='place_cell_labels')
+            self.head_dir_labels = tf.placeholder(tf.float32, [None, max_time, M],
+                name='head_dir_labels')
 
-        self.pipes = [Pipe() for i in range(self.num_envs)]
-        self.parent_conns, self.child_conns = zip(*self.pipes)
-        self.processes = \
-            [Process(target=self._env_worker, 
-                args=(self.child_conns[i],self.level_script, self.obs_types, \
-                    self.config)) 
-            for i in range(self.num_envs)]
+            self.place_cell_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                labels=self.place_cell_labels,
+                logits=self.pred_place_cell_logits)
+            self.head_dir_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                labels=self.head_dir_labels,
+                logits=self.pred_head_dir_logits)
 
-        for process in self.processes:
-            process.start()
+            self.loss = tf.math.add(self.place_cell_loss, self.head_dir_loss)
 
-    def _env_worker(self, child_conn, level_script, obs_types, config):
-        print("ParallelEnv._env_worker")
-        env = deepmind_lab.Lab(level_script, obs_types, config=config)
-        env.reset()
+            # Optimizer
+            self.optimizer = tf.train.RMSPropOptimizer(\
+                learning_rate=self.learning_rate, momentum=.9).minimize(self.loss)
 
-        while True:
-            # data is a dict mapping inputs to values.
-            flag, data = child_conn.recv()
-            if flag == 'RESET':
-                env.reset()
-                package = True
-            elif flag == 'OBSERVATIONS':
-                package = env.observations()
-            elif flag == 'STEP':
-                package = env.step(data['action'])
-            else:
-                # PANIC!
-                package = False
-            child_conn.send(package)
+            # Output
+            self.pred_place_cell = tf.math.softmax( \
+                tf.reshape(self.pred_place_cell_logits, [-1, self.max_time, self.N]), 
+                axis=2)
 
-    def _send_then_recv(self, packages):
-        for i, conn in enumerate(self.parent_conns):
-            conn.send(packages[i])
-        return [conn.recv() for conn in self.parent_conns]
+            self.pred_head_dir = tf.math.softmax(\
+                tf.reshape(self.pred_head_dir_logits, [-1, self.max_time, self.M]), 
+                axis=2)
 
-    def reset(self):
-        # reset each env.
-        packages = [('RESET', {}) for i in range(self.num_envs)]
-        return self._send_then_recv(packages)
-
-    def observations(self):
-        # return a dict, mapping observation types to arrays of observations
-        packages = [('OBSERVATIONS', {}) for i in range(self.num_envs)]
-        data = self._send_then_recv(packages)
-        result = {}
-        for obs_type in self.obs_types:
-            result[obs_type] = np.array(
-                [data[i][obs_type] for i in range(self.num_envs)])
-        return result
-
-    def step(self, action):
-        # takes an array of actions, returns an array of rewards
-        packages = [('STEP', {'action': action[i]}) for i in \
-            range(self.num_envs)]
-        return np.array(self._send_then_recv(packages))
-
-
-class RatTrajectoryGenerator(object):
-    def __init__(self, env, trajectory_length=100):
-        self.env = env
-        self.frame_count = trajectory_length
-        self.threshold_distance = 16 #currently abitrary number
-        self.threshold_angle = 90
-        self.mu = 0 #currently abitrary number
-        self.sigma = 12 #currently abitrary number
-        self.b = 1 #currently abitrary number
-        # self.reset()
-
-        # Could use attributes to generate more data on each run
-        # self.observation_data = []
-        # self.position_data = []
-        # self.direction_data = []
-        # self.trans_velocity_data = []
-        # self.ang_velocity_data = []
-        # self.env.reset()
-
-    def randomTurn(self, samples=1):
-        return np.random.normal(self.mu, self.sigma, samples)
-
-    def randomVelocity(self, samples=1):
-        return np.random.rayleigh(self.b, samples)
-
-    def generateTrajectories(self):
-        """ Generates a batch of trajectories, one for each parallel env """
-        print("Generating Trajectories")
-        sys.stdout.flush()
-
-        self.env.reset()
-
-        observations = []
-        positions = []
-        directions = []
-        trans_velocitys = []
-        ang_velocitys = []
-
-        prev_yaw = 0
-        for i in range(self.frame_count):
-            dWall = self.env.observations()['DISTANCE_TO_WALL']
-            aWall = self.env.observations()['ANGLE_TO_WALL']
-            vel = abs(self.env.observations()['VEL.TRANS'][:,1])
-            pos = self.env.observations()['POS']
-            yaw = self.env.observations()['ANGLES'][:,1]
-            obs = self.env.observations()['RGB_INTERLEAVED']
-            # vel_rot = self.env.observations()['VEL.ROT'][1]
-            # Note: On the lua side, game:playerInfo().anglesVel only works
-            # during :game human playing for some reason
-            ang_vel = yaw - prev_yaw # in px/frame
-            prev_yaw = yaw
-
-            def update_traj(dWall, aWall, vel, pos, yaw, obs):
-                # Update
-                if dWall < self.threshold_distance and abs(aWall) < self.threshold_angle and aWall <= 360:
-                    # If heading towards a wall, slow down and turn away from it
-                    desired_angle = np.sign(aWall)*(self.threshold_angle-abs(aWall)) \
-                                  + self.randomTurn()      
-                    deg_per_pixel = .1043701171875 # degrees per pixel rotated
-                    turn_angle = desired_angle - aWall 
-                    pixels_to_turn = int(turn_angle / deg_per_pixel)
-
-                    forward_action = 0
-                    prob_speed = dWall / self.threshold_distance
-                    if random.uniform(0, 1) < prob_speed:
-                        forward_action = 1
-
-                    action = np.array([pixels_to_turn, 0, 0, forward_action, 0, 0, 0], 
-                        dtype=np.intc)
-                else:
-                    # Otherwise, act somewhat randomly
-                    desired_turn = self.randomTurn()
-                    desired_velocity = self.randomVelocity()
-                    pixels_to_turn = int(desired_turn / .1043701171875)
-                    action = np.array([pixels_to_turn, 0, 0, 1, 0, 0, 0], 
-                        dtype=np.intc)
-
-                return action, obs, pos, yaw, vel
-            
-            data = [update_traj(dWall[j], aWall[j], vel[j], pos[j], yaw[j], obs[j]) \
-                for j in range(self.env.num_envs)]
-            action, obs, pos, yaw, vel = zip(*data)
-
-            self.env.step(action)
-
-            observations.append(obs)
-            positions.append(pos)
-            directions.append(yaw)
-            trans_velocitys.append(vel)
-            ang_velocitys.append(ang_vel)
-
-        observations = np.swapaxes(observations, 0, 1)
-        positions = np.swapaxes(positions, 0, 1)
-        directions = np.swapaxes(directions, 0, 1)
-        trans_velocitys = np.swapaxes(trans_velocitys, 0, 1)
-        ang_velocitys = np.swapaxes(ang_velocitys, 0, 1)
-
-        return (observations, positions, directions, trans_velocitys, \
-            ang_velocitys) # hackyyy
-
-    def generateAboutNTrajectories(self, N):
-        observation_data = []
-        position_data = []
-        direction_data = []
-        trans_velocity_data = []
-        ang_velocity_data = []
-
-        for i in range(int(N/self.env.num_envs)):
-            obs, pos, dire, trans_vel, ang_vel = self.generateTrajectories()
-            observation_data.append(obs)
-            position_data.append(pos)
-            direction_data.append(dire)
-            trans_velocity_data.append(trans_vel)
-            ang_velocity_data.append(ang_vel)
-
-        observation_data = np.concatenate(np.array(observation_data), axis=0)
-        position_data = np.concatenate(np.array(position_data), axis=0)
-        direction_data = np.concatenate(np.array(direction_data), axis=0)
-        trans_velocity_data = np.concatenate(np.array(trans_velocity_data), \
-            axis=0)
-        ang_velocity_data = np.concatenate(np.array(ang_velocity_data), axis=0)
-
-        return (observation_data, position_data, direction_data,
-            trans_velocity_data, ang_velocity_data)
+            # Note: may want to use tf.stop gradient if hooking this up directly
+            # to other network.
 
 
 class Trainer(object):
@@ -546,12 +349,12 @@ class Trainer(object):
                 'DISTANCE_TO_WALL', 'ANGLE_TO_WALL', 'ANGLES'],
         config={'width': str(80), 'height': str(80)}):
 
-        self.env = ParallelEnv(level_script, obs_types, config, num_envs)
-        self.place_cells = PlaceCells(N, sigma)
-        self.head_cells = HeadDirCells(M)
+        self.env = environment.ParallelEnv(level_script, obs_types, config, num_envs)
+        self.place_cells = cells.PlaceCells(N, sigma)
+        self.head_cells = cells.HeadDirCells(M)
         self.grid_network = GridNetwork(name="grid_network", 
             learning_rate=learning_rate, max_time=trajectory_length) # add this later
-        self.rat = RatTrajectoryGenerator(self.env, trajectory_length)
+        self.rat = rat_trajectory_generator.RatTrajectoryGenerator(self.env, trajectory_length)
 
         self.train_iterations = train_iterations
         self.batch_size = batch_size
@@ -659,6 +462,9 @@ class SlurmManager(object):
 
 
 def run(slurm_array_index, base_path):
+
+    print("testing vision module:")
+    v = VisionModule()
 
     # TESTING LOCALLY:
     base_path = '/mnt/hgfs/ryanprinster/data/'

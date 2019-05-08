@@ -347,7 +347,6 @@ def index_to_english(action):
   ]
   return english_names_of_actions[action]
 
-
 def env_worker(child_conn, level, config):
     env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED', 'POS'], config=config)
     env.reset()

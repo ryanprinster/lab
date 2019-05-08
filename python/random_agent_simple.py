@@ -51,39 +51,25 @@ class RandomAgent(object):
 
 def run(width, height, level_script, frame_count):
   """Spins up an environment and runs the random agent."""
-  config = {'width': str(width), 'height': str(height)}
 
-  observations = ['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS']
-  env = deepmind_lab.Lab(level_script, observations, config=config)
+  from python import grid_network
+      # TESTING LOCALLY:
+  base_path = '/mnt/hgfs/ryanprinster/data/'
+  slurm_array_index = 1
+  grid_network.SlurmManager(slurm_array_index, base_path).run()
 
-  agent = RandomAgent(env.action_spec())
-  env.reset()
+  # config = {'width': str(width), 'height': str(height)}
 
-  print("DISTANCE_TO_WALL")
-  print(env.observations()['DISTANCE_TO_WALL'])
-  print("ANGLE_TO_WALL")
-  print(env.observations()['ANGLE_TO_WALL'])
+  # observations = ['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS']
+  # env = deepmind_lab.Lab(level_script, observations, config=config)
 
+  # agent = RandomAgent(env.action_spec())
+  # env.reset()
 
-
-
-
-
-  # vel_trans_data = []
-
-  # for i in range(20):
-  #   action = agent.step(1)
-  #   env.step(action, num_steps=1)
-  #   vel_trans = env.observations()['VEL.TRANS']
-  #   vel_trans_data.append(vel_trans)
-
-  # for i in range(20):
-  #   action = agent.step(-1)
-  #   env.step(action, num_steps=1)
-  #   vel_trans = env.observations()['VEL.TRANS']
-  #   vel_trans_data.append(vel_trans)
-
-  # np.save('/mnt/hgfs/ryanprinster/test/vel_trans_data.npy', np.array(vel_trans_data))
+  # print("DISTANCE_TO_WALL")
+  # print(env.observations()['DISTANCE_TO_WALL'])
+  # print("ANGLE_TO_WALL")
+  # print(env.observations()['ANGLE_TO_WALL'])
 
 
 if __name__ == '__main__':
