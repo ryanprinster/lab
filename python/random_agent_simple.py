@@ -39,7 +39,7 @@ class RandomAgent(object):
     self.action_spec = action_spec
     self.action_count = len(action_spec)
 
-  def step(self, scale):
+  def step(self, scale=1):
     """Choose a random amount of a randomly selected action."""
     action_choice = random.randint(0, self.action_count - 1)
     action_amount = random.randint(self.action_spec[action_choice]['min'],
@@ -52,19 +52,22 @@ class RandomAgent(object):
 def run(width, height, level_script, frame_count):
   """Spins up an environment and runs the random agent."""
 
-  from python import grid_network
-      # TESTING LOCALLY:
-  base_path = '/mnt/hgfs/ryanprinster/data/'
-  slurm_array_index = 1
-  grid_network.SlurmManager(slurm_array_index, base_path).run()
+  # TESTING LOCALLY:
+
+  print(np.empty((1,2,3)))
 
   # config = {'width': str(width), 'height': str(height)}
-
-  # observations = ['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS']
+  # level_script = 'tests/trivial_maze'
+  # observations = ['RGB_INTERLEAVED']
   # env = deepmind_lab.Lab(level_script, observations, config=config)
+  # env.reset()
 
   # agent = RandomAgent(env.action_spec())
-  # env.reset()
+
+  # while True:
+  #   action = agent.step()
+  #   print(env.step(action))
+  #   print(env.num_steps())
 
   # print("DISTANCE_TO_WALL")
   # print(env.observations()['DISTANCE_TO_WALL'])

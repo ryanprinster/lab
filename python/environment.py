@@ -11,13 +11,45 @@ from multiprocessing import Process, Queue, Pipe
 
 import deepmind_lab
 
+# class Util(object):
+#     """
+#     Contains functions related to the dmlab environment
+#     """
+#     def __init__(self):
+#         pass
+
+def _action(*entries):
+    return np.array(entries, dtype=np.intc)
+
+def map_to_dmlab(action_index):
+    DMLAB_ACTIONS = [_action(-20, 0, 0, 0, 0, 0, 0),
+    _action(20, 0, 0, 0, 0, 0, 0),
+    _action(0, 0, -1, 0, 0, 0, 0),
+    _action(0, 0, 1, 0, 0, 0, 0),
+    _action(0, 0, 0, 1, 0, 0, 0),
+    _action(0, 0, 0, -1, 0, 0, 0)]
+
+    if isinstance(action_index, int):
+        return DMLAB_ACTIONS[action_index]
+    elif isinstance(action_index, list) or isinstance(action_index, np.ndarray):
+        return np.array([DMLAB_ACTIONS[i] for i in action_index])
+    else:
+        print("Panic! Type is actually: ", type(action_index))
+
+
+
 class ParallelEnv(object):
-    def __init__(self, level_script, obs_types, config, num_envs):
+    """
+    Mimics the Deepmind Lab Env API, for multiple environments in parallel.
+    """
+    # TODO: Add num_steps functionality
+    def __init__(self, level_script, obs_types, config, num_envs, num_steps=1):
         # TODO: Create ENUMS?
         self.level_script = level_script
         self.obs_types = obs_types
         self.config = config
         self.num_envs = num_envs
+        self.num_steps = num_steps
 
         self.pipes = [Pipe() for i in range(self.num_envs)]
         self.parent_conns, self.child_conns = zip(*self.pipes)
@@ -44,7 +76,10 @@ class ParallelEnv(object):
             elif flag == 'OBSERVATIONS':
                 package = env.observations()
             elif flag == 'STEP':
-                package = env.step(data['action'])
+                # requires dtype=np.intc
+                package = env.step(data['action'], self.num_steps)
+            elif flag == 'NUM_STEPS':
+                package = env.num_steps()
             else:
                 # PANIC!
                 package = False
@@ -74,6 +109,11 @@ class ParallelEnv(object):
         # takes an array of actions, returns an array of rewards
         packages = [('STEP', {'action': action[i]}) for i in \
             range(self.num_envs)]
+        return np.array(self._send_then_recv(packages))
+
+    def num_steps(self):
+        # returns number of steps since last reset call
+        packages = [('NUM_STEPS', {}) for i in range(self.num_envs)]
         return np.array(self._send_then_recv(packages))
 
 if __name__ == '__main__':

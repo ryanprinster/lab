@@ -1049,6 +1049,15 @@ py_binary(
 )
 
 py_binary(
+    name = "python_a2c_lstm_2",
+    srcs = ["python/a2c_lstm_2.py", "python/environment.py"],
+    data = [":deepmind_lab.so"],
+    main = "python/a2c_lstm_2.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
+
+py_binary(
     name = "python_grid_network",
     srcs = [
         "python/grid_network.py", 

@@ -53,29 +53,24 @@ kernel_size_1 = [8,8,3]
 output_filters_conv1 = 32     
 output_filters_conv2 = 64     
 output_filters_conv3 = 64     
-hidden_size = 512               # number of units in hidden layer
+hidden_size = 512               # number of units in each Q-network hidden layer
 lstm_size = 256
 
 
 # Training parameters
-train_episodes = 5000#500          # max number of episodes to learn from
+train_episodes = 5000          # max number of episodes to learn from
 num_envs = 4                    # experience mini-batch size
-
-# global learning_rate
-# global max_steps
-# global gamma
-# global entropy_reg_term
 
 learning_rate = 0.001          # learning rate
 n = 20                          # n in n-step updating
-max_steps = num_envs*train_episodes*n    # max steps before reseting the agent
+max_steps = 40                  # max steps before reseting the agent
 gamma = 0.8                     # future reward discount
 entropy_reg_term = 0.05           # regularization term for entropy
 normalise_entropy = False       # when true normalizes entropy to be in [-1, 0] to be more invariant to different size action spaces
 
 
 class ActorCriticNetwork:
-    def __init__(self, name, num_envs=4, n=20):
+    def __init__(self, name):
         with tf.variable_scope(name):
             self.name = name
 
@@ -124,6 +119,7 @@ class ActorCriticNetwork:
             )
 
             self.lstm_output_flat = tf.reshape(self.lstm_output, [-1, lstm_size])
+            # TODO: rethink layer shapes?
 
 
             # Value function - Linear output layer
@@ -176,35 +172,9 @@ class ActorCriticNetwork:
             print("value_output_unflat: ", self.value_output_unflat.shape)
             print("policy_logits_unflat: ", self.policy_logits_unflat.shape)
 
-
-            print(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
-            graph = tf.get_default_graph()
-
-            # TODO: get this some other way?
-            conv1_w_summary = tf.summary.histogram('conv1 weights',graph.get_tensor_by_name("main_acn/Conv/weights:0"))
-            conv1_b_summary = tf.summary.histogram('conv1 biases',graph.get_tensor_by_name("main_acn/Conv/biases:0"))
-            conv2_w_summary = tf.summary.histogram('conv2 weights',graph.get_tensor_by_name("main_acn/Conv_1/weights:0"))
-            conv2_b_summary = tf.summary.histogram('conv2 biases',graph.get_tensor_by_name("main_acn/Conv_1/biases:0"))
-            conv3_w_summary = tf.summary.histogram('conv2 weights',graph.get_tensor_by_name("main_acn/Conv_2/weights:0"))
-            conv3_b_summary = tf.summary.histogram('conv3 biases',graph.get_tensor_by_name("main_acn/Conv_2/biases:0"))
-            fc1_w_summary = tf.summary.histogram('fc1 weights',graph.get_tensor_by_name("main_acn/fully_connected/weights:0"))
-            fc1_b_summary = tf.summary.histogram('fc1 biases',graph.get_tensor_by_name("main_acn/fully_connected/biases:0"))
-            lstm_w_summary = tf.summary.histogram('lstm weights',graph.get_tensor_by_name("main_acn/rnn/lstm_cell/kernel:0"))
-            lstm_b_summary = tf.summary.histogram('lstm biases',graph.get_tensor_by_name("main_acn/rnn/lstm_cell/bias:0"))
-            value_w_summary = tf.summary.histogram('value weights',graph.get_tensor_by_name("main_acn/fully_connected_1/weights:0"))
-            value_b_summary = tf.summary.histogram('value biases',graph.get_tensor_by_name("main_acn/fully_connected_1/biases:0"))
-            policy_w_summary = tf.summary.histogram('policy weights',graph.get_tensor_by_name("main_acn/fully_connected_2/weights:0"))
-            policy_b_summary = tf.summary.histogram('policy biases',graph.get_tensor_by_name("main_acn/fully_connected_2/biases:0"))
-
             # Tensorboard
             self.average_reward_metric = tf.placeholder(tf.float32, name="average_reward")
             # self.average_length_of_episode = tf.placeholder(tf.float32, name="average_length_of_episode")
-
-            conv1_summary = tf.summary.histogram('conv1', self.conv1)
-            conv2_summary = tf.summary.histogram('conv2', self.conv2)
-            conv3_summary = tf.summary.histogram('conv3', self.conv3)
-            fc1_summary = tf.summary.histogram('fc1', self.fc1)
-            # lstm_summary = tf.summary.histogram('lstm', self.lstm_cell)
 
             policy_summary = tf.summary.tensor_summary('policy', self.policy_output)
             reward_summary = tf.summary.scalar('average_reward_metric', self.average_reward_metric)
@@ -220,21 +190,7 @@ class ActorCriticNetwork:
                 entropy_summary,
                 baseline_loss_summary,
                 entropy_loss_summary,
-                policy_gradient_loss,
-                conv1_w_summary,
-                conv1_b_summary,
-                conv2_w_summary,
-                conv2_b_summary,
-                conv3_w_summary,
-                conv3_b_summary,
-                fc1_w_summary,
-                fc1_b_summary,
-                lstm_w_summary,
-                lstm_b_summary,
-                value_w_summary,
-                value_b_summary,
-                policy_w_summary,
-                policy_b_summary
+                policy_gradient_loss
                 ])
 
             self.action_step_summary = tf.summary.merge([policy_summary])
@@ -347,8 +303,9 @@ def index_to_english(action):
   ]
   return english_names_of_actions[action]
 
+
 def env_worker(child_conn, level, config):
-    env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED', 'POS'], config=config)
+    env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)
     env.reset()
     print("Started another environment worker!")
 
@@ -356,14 +313,9 @@ def env_worker(child_conn, level, config):
         # if child_conn.poll():
         # Note: using the above loops, without it blocks. Not sure which is fastest.
             action, t = child_conn.recv()
-
-            # Get position and velocityt
-            if action == None:
-                package = env.observations()['POS']
-            else:
-                package = env_step(env, action, t)
+            package = env_step(env, action, t)
             child_conn.send(package)
-
+ 
 def env_step(env, action, t, num_repeats=20):
 
     # print(index_to_english(action))
@@ -438,28 +390,14 @@ def deep_cast_to_nparray(bad_array):
 def get_discounts(reward_list):
     return np.array([[gamma for x in y] for y in reward_list])
 
-def get_positions(parent_conns):
-
-    # Send empty package to indicate want position.
-    parent_conns[0].send((None, None))
-    position = parent_conns[0].recv()
-    return position
-
-def train(level, config, tensorboard_path, mainA2C):
+def train(level, config):
     # Now train with experiences
-    print("num_envs", num_envs)
-    print("tensorboard_path", tensorboard_path)
 
     # Initialization
-
-    # TODO: this should come from 
     envs_list = [deepmind_lab.Lab(level, ['RGB_INTERLEAVED'], config=config)] * num_envs
     envs_list = map(reset_envs, envs_list)
     state_batch = map(lambda env: env.observations()['RGB_INTERLEAVED'], envs_list)
     next_state_batch = copy.deepcopy(state_batch)
-
-    # Init stuff for positions
-    position_data = []
 
     # Initalization of multiprocessing stuff
     pipes = [Pipe() for i in range(num_envs)]
@@ -476,9 +414,7 @@ def train(level, config, tensorboard_path, mainA2C):
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         # https://medium.com/@anthony_sarkis/tensorboard-quick-start-in-5-minutes-e3ec69f673af
-        # Need to switch for om
-        # train_writer = tf.summary.FileWriter( '/mnt/hgfs/ryanprinster/lab/tensorboard', sess.graph)
-        train_writer = tf.summary.FileWriter(tensorboard_path, sess.graph)
+        train_writer = tf.summary.FileWriter( '/mnt/hgfs/ryanprinster/lab/tensorboard', sess.graph)
 
         step = 0 # Same step at every train iteration
         t_list = [0 for i in range(num_envs)]
@@ -492,9 +428,6 @@ def train(level, config, tensorboard_path, mainA2C):
             hidden_state_input = None
             for i in range(n):
                 state_batch = next_state_batch # TODO: Namespace collision?
-
-                # Track X, Y position
-                position_data.append(get_positions(parent_conns))
 
                 step += 1
                 print("step: ", step)
@@ -525,7 +458,7 @@ def train(level, config, tensorboard_path, mainA2C):
                 n_steps_parallel.append(np.array(env_tuples))
 
 
-            # Need to this in GPU parallel
+            # Need to this in GPU parallel # should be n_steps_parallel[-1]?
             bootstrap_vals_list = get_bootstrap(n_steps_parallel[0], sess, mainA2C, hidden_state_input)
 
             n_steps_parallel = [deep_cast_to_nparray(tup) for tup in np.moveaxis(n_steps_parallel, -1, 0)]
@@ -533,11 +466,11 @@ def train(level, config, tensorboard_path, mainA2C):
 
             pcontinues_list = get_discounts(reward_list_train)
 
-            print("action_list_train.shape: ", action_list_train)
+            print("action_list_train.shape: ", action_list_train.shape)
             print("state_list_train.shape: ", state_list_train.shape)
-            print("reward_list_train: ", reward_list_train)
-            print("bootstrap_vals_list: ", bootstrap_vals_list)
-            print("pcontinues_list: ", pcontinues_list)
+            print("reward_list_train: ", reward_list_train.shape)
+            print("bootstrap_vals_list: ", bootstrap_vals_list.shape)
+            print("pcontinues_list: ", pcontinues_list.shape)
 
             # Train step
             loss, extra, summary = mainA2C.train_step(sess, 
@@ -564,8 +497,6 @@ def train(level, config, tensorboard_path, mainA2C):
             # 3) clip policy gradients? Might already be done
             # 4) remove 0s in pcontinues?
 
-            print("saving text")
-            np.save('/mnt/hgfs/ryanprinster/test/position_data.npy', np.array(position_data))
         # print("Saving...")
         # saver.save(sess, '/mnt/hgfs/ryanprinster/lab/models/my_model', global_step=ep)
 
@@ -573,12 +504,12 @@ def train(level, config, tensorboard_path, mainA2C):
         # saver.restore(sess, tf.train.latest_checkpoint('/mnt/hgfs/ryanprinster/lab/models/'))
 
 
+tf.reset_default_graph()
+mainA2C = ActorCriticNetwork(name='main_acn')
 
-def run(length, width, height, fps, level, record, demo, demofiles, video, 
-    tensorboard_path, num_envs_, n_, max_steps_, learning_rate_, gamma_, 
-      entropy_reg_term_):
+
+def run(length, width, height, fps, level, record, demo, demofiles, video):
   """Spins up an environment and runs the random agent."""
-  # TODO: make tabs/spaces consistent
   config = {
       'fps': str(fps),
       'width': str(width),
@@ -608,17 +539,10 @@ def run(length, width, height, fps, level, record, demo, demofiles, video,
       'crouch': _action(0, 0, 0, 0, 0, 0, 1)
   }
 
-  # TODO: Remove global variables
-  global max_steps, learning_rate, gamma, entropy_reg_term, num_envs, n
-  max_steps, learning_rate, gamma, entropy_reg_term, num_envs, n = \
-  max_steps_, learning_rate_, gamma_, entropy_reg_term_,  num_envs_, n_
 
-  print('num_envs:', num_envs)
-  print('n:', n)
-  tf.reset_default_graph()
-  mainA2C = ActorCriticNetwork(name='main_acn', num_envs=num_envs, n=n)
 
-  train(level, config, tensorboard_path, mainA2C)
+  train(level, config)
+
 
 
 if __name__ == '__main__':
@@ -634,7 +558,7 @@ if __name__ == '__main__':
   parser.add_argument('--runfiles_path', type=str, default=None,
                       help='Set the runfiles path to find DeepMind Lab data')
   parser.add_argument('--level_script', type=str,
-                      default='tests/hannahs_maze',
+                      default='tests/empty_room_test',
                       help='The environment level script to load')
   parser.add_argument('--record', type=str, default=None,
                       help='Record the run to a demo file')
@@ -644,27 +568,9 @@ if __name__ == '__main__':
                       help='Directory for demo files')
   parser.add_argument('--video', type=str, default=None,
                       help='Record the demo run as a video')
-  parser.add_argument('--tensorboard_path', type=str, 
-                      default='/mnt/hgfs/ryanprinster/lab/tensorboard',
-                      help='Set the tensorboard path to save tensorboard output')
-  parser.add_argument('--num_envs', type=int, default=1,
-                      help='Set the number of environments to run in parallel')
-  parser.add_argument('--n', type=int, default=5,
-                      help='Set the length at which to truncate the LSTM')
-  parser.add_argument('--max_steps', type=int, default=500,
-                      help='Max number of steps before resetting the agent')
-  parser.add_argument('--learning_rate', type=float, default=.001,
-                      help='Learning rate')
-  parser.add_argument('--gamma', type=float, default=.99,
-                      help='Future reward discount')
-  parser.add_argument('--entropy_reg_term', type=float, default=.05,
-                      help='Entropy regularization term')
-
 
   args = parser.parse_args()
   if args.runfiles_path:
     deepmind_lab.set_runfiles_path(args.runfiles_path)
   run(args.length, args.width, args.height, args.fps, args.level_script,
-      args.record, args.demo, args.demofiles, args.video, args.tensorboard_path, 
-      args.num_envs, args.max_steps, args.n, args.learning_rate, args.gamma, 
-      args.entropy_reg_term)
+      args.record, args.demo, args.demofiles, args.video)
