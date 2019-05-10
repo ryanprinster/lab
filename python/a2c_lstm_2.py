@@ -330,145 +330,6 @@ class ActorCriticNetwork:
                                 self.average_reward_metric: np.mean(rewards)})
         return loss, extra, train_step_summary
 
-# def _action(*entries):
-#     return np.array(entries, dtype=np.intc)
-
-# def get_random_action():
-#     return random.randint(0,5)
-
-    # DeepMind Lab defines takes actions as follows:
-    # ACTIONS = {
-    #   'look_left': _action(-20, 0, 0, 0, 0, 0, 0),
-    #   'look_right': _action(20, 0, 0, 0, 0, 0, 0),
-    #   # 'look_up': _action(0, 10, 0, 0, 0, 0, 0),
-    #   # 'look_down': _action(0, -10, 0, 0, 0, 0, 0),
-    #   'strafe_left': _action(0, 0, -1, 0, 0, 0, 0),
-    #   'strafe_right': _action(0, 0, 1, 0, 0, 0, 0),
-    #   'forward': _action(0, 0, 0, 1, 0, 0, 0),
-    #   'backward': _action(0, 0, 0, -1, 0, 0, 0),
-    #   # 'fire': _action(0, 0, 0, 0, 1, 0, 0),
-    #   # 'jump': _action(0, 0, 0, 0, 0, 1, 0),
-    #   # 'crouch': _action(0, 0, 0, 0, 0, 0, 1)
-    # }
-
-
-# def map_to_dmlab(action_index):
-    
-#     DMLAB_ACTIONS = [_action(-20, 0, 0, 0, 0, 0, 0),
-#     _action(20, 0, 0, 0, 0, 0, 0),
-#     _action(0, 0, -1, 0, 0, 0, 0),
-#     _action(0, 0, 1, 0, 0, 0, 0),
-#     _action(0, 0, 0, 1, 0, 0, 0),
-#     _action(0, 0, 0, -1, 0, 0, 0)]
-
-#     return DMLAB_ACTIONS[action_index]
-
-# def index_to_english(action):
-#   english_names_of_actions = [
-#     'look_left', 'look_right', 'strafe_left', 'strafe_right', 'forward', 'backward'
-#   ]
-#   return english_names_of_actions[action]
-
-# def env_worker(child_conn, level, config):
-#     env = deepmind_lab.Lab(level, ['RGB_INTERLEAVED', 'POS'], config=config)
-#     env.reset()
-#     print("Started another environment worker!")
-
-#     while True:
-#         # if child_conn.poll():
-#         # Note: using the above loops, without it blocks. Not sure which is fastest.
-#             action, t = child_conn.recv()
-
-#             # Get position and velocityt
-#             if action == None:
-#                 package = env.observations()['POS']
-#             else:
-#                 package = env_step(env, action, t)
-#             child_conn.send(package)
-
-# def env_step(env, action, t, num_repeats=20):
-
-#     # print(index_to_english(action))
-#     english_action = index_to_english(action)
-#     action = map_to_dmlab(action)
-#     reward = 0
-#     count = 0
-#     reset = False
-    
-#     while count < num_repeats:
-#         if not env.is_running():
-#             env.reset()
-
-#         reward = env.step(action)
-        
-#         if reward != 0:
-#             break 
-          
-#         count +=1
-#     if reward > 0:
-#         print("Action: ", english_action, " REWARD: " + str(reward), "Steps taken: ", t)
-
-#     # Dealing w/ end of episode
-#     next_state = None
-#     episode_done = False
-#     # print("t: ", t, "max_steps: ", max_steps, "reward: ", reward)
-#     if reward > 0 or t == max_steps:
-#         if t == max_steps:
-#             reward = .0000001
-#             # reward = -1
-#         next_state = np.zeros(state_size)
-#         t = 0
-#         env.reset()
-#         next_state = env.observations()['RGB_INTERLEAVED']
-#         episode_done = True
-
-#     else:
-#         next_state = env.observations()['RGB_INTERLEAVED']
-#         t += 1
-
-#     return (next_state, reward, t, episode_done)
-
-# def reset_envs(env):
-#     env.reset()
-#     return env
-
-
-
-# def get_bootstrap(args, sess, ac_network, hidden_state_input):
-#     args = np.moveaxis(args, -1, 0)
-#     # Getting R to use as initial condition. Essentially doing the whole target function thing. 
-#     _state, action, next_state, reward, _t, _episode_done = args
-#     next_state = np.array([np.array(s) for s in next_state])
-
-#     next_state_data = np.expand_dims(np.array(next_state), axis=0)
-#     bootstrapped_R = ac_network.get_value(sess, next_state_data, hidden_state_input, action, reward)
-
-#     bootstrapped_Rs = []
-#     for i in range(num_envs):
-#         if reward[i] == 0:
-#             bootstrapped_Rs.append(bootstrapped_R[i])
-#         else:
-#             bootstrapped_Rs.append(reward[i])
-
-#     return bootstrapped_R
-
-# def deep_cast_to_nparray(bad_array):
-#     return np.array([np.array([np.array(a) for a in inner]) for inner in bad_array])
-
-# def get_discounts(reward_list):
-#   f = lambda x: 0.0 if x != 0 else gamma
-#   return np.array([[f(x) for x in y] for y in reward_list])
-
-# def get_discounts(reward_list):
-#     return np.array([[gamma for x in y] for y in reward_list])
-
-# def get_positions(parent_conns):
-
-#     # Send empty package to indicate want position.
-#     parent_conns[0].send((None, None))
-#     position = parent_conns[0].recv()
-#     return position
-
 class A2CAgent(object):
     def __init__(self, level, num_envs, n, tensorboard_path, train_episodes, 
         gamma):
@@ -636,8 +497,6 @@ class A2CAgent(object):
 
 
 
-
-
 def run(length, width, height, fps, level, record, demo, demofiles, video, 
     tensorboard_path, num_envs_, n_, max_steps_, learning_rate_, gamma_, 
       entropy_reg_term_):
@@ -656,28 +515,6 @@ def run(length, width, height, fps, level, record, demo, demofiles, video,
     config['demofiles'] = demofiles
   if video:
     config['video'] = video
-
-  # #Testing actions
-  # ACTIONS = {
-  #     'look_left': _action(-20, 0, 0, 0, 0, 0, 0),
-  #     'look_right': _action(20, 0, 0, 0, 0, 0, 0),
-  #     'look_up': _action(0, 10, 0, 0, 0, 0, 0),
-  #     'look_down': _action(0, -10, 0, 0, 0, 0, 0),
-  #     'strafe_left': _action(0, 0, -1, 0, 0, 0, 0),
-  #     'strafe_right': _action(0, 0, 1, 0, 0, 0, 0),
-  #     'forward': _action(0, 0, 0, 1, 0, 0, 0),
-  #     'backward': _action(0, 0, 0, -1, 0, 0, 0),
-  #     'fire': _action(0, 0, 0, 0, 1, 0, 0),
-  #     'jump': _action(0, 0, 0, 0, 0, 1, 0),
-  #     'crouch': _action(0, 0, 0, 0, 0, 0, 1)
-  # }
-
-  # # TODO: Remove global variables
-  # global max_steps, learning_rate, gamma, entropy_reg_term, num_envs, n
-  # max_steps, learning_rate, gamma, entropy_reg_term, num_envs, n = \
-  # max_steps_, learning_rate_, gamma_, entropy_reg_term_,  num_envs_, n_
-
-  
 
   agent = A2CAgent(level=level, num_envs=4, n=10, 
     tensorboard_path=tensorboard_path, train_episodes=1000, 

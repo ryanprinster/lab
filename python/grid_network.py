@@ -41,7 +41,7 @@ class GridNetwork(object):
         # TODO: share these
         self.grid_layer_size = grid_layer_size
 
-
+        
         with tf.variable_scope(name):
             
             # Constructing inputs to the lstm layer
@@ -458,8 +458,6 @@ class SlurmManager(object):
             num_envs=hyperparam_selection[3],
             sigma=hyperparam_selection[4])
         trainerParallel.train()
-
-
 
 def run(slurm_array_index, base_path):
 
