@@ -44,6 +44,8 @@ class RatTrajectoryGenerator(object):
         # self.trans_velocity_data = []
         # self.ang_velocity_data = []
         # self.env.reset()
+        print('Finishing RatTrajectoryGenerator __init__')
+        sys.stdout.flush()
 
     def randomTurn(self, samples=1):
         return np.random.normal(self.mu, self.sigma, samples)

@@ -18,7 +18,12 @@ import tensorflow as tf
 from multiprocessing import Process, Queue, Pipe
 
 import deepmind_lab
-from python import environment, rat_trajectory_generator, cells
+from environment import ParallelEnv
+from cells import PlaceCells, HeadDirCells
+from grid_network import GridNetwork, VisionModule
+from rat_trajectory_generator import RatTrajectoryGenerator as Rat
+from replay_buffer import ReplayBuffer 
+from a2c_lstm_2 import A2CAgent 
 
 
 class Trainer(object):
@@ -38,20 +43,26 @@ class Trainer(object):
         batch_size=16, 
         num_envs=4,
         sigma=1,
+        n=5,
+        gamma=.99,
         level_script='tests/empty_room_test', 
         obs_types=['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS',
                 'DISTANCE_TO_WALL', 'ANGLE_TO_WALL', 'ANGLES'],
         config={'width': str(80), 'height': str(80)}):
 
-        self.env = environment.ParallelEnv(level_script, obs_types, config, num_envs)
-        self.place_cells = cells.PlaceCells(N, sigma)
-        self.head_cells = cells.HeadDirCells(M)
+        self.env = ParallelEnv(level_script, obs_types, config, num_envs)
+        self.place_cells = PlaceCells(N, sigma)
+        self.head_cells = HeadDirCells(M)
         self.grid_network = GridNetwork(name="grid_network", 
             learning_rate=learning_rate, max_time=trajectory_length) # add this later
         self.rat = rat_trajectory_generator.RatTrajectoryGenerator(self.env, trajectory_length)
+        self.a2c_agent = A2CAgent(level_script, num_envs, n, tensorboard_path, train_iterations, 
+        gamma)
+        self.replay_buffer = ReplayBuffer()
 
         self.train_iterations = train_iterations
         self.batch_size = batch_size
+
 
         self.base_path = base_path
         self.experiments_save_path = self.base_path + 'experiments/'
@@ -66,21 +77,17 @@ class Trainer(object):
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
 
+            # Tensorflow saver stuff
             if self.restore:
                 self.saver.restore(sess, \
                     tf.train.latest_checkpoint(self.unique_exp_save_path))
 
+            # Tensorboard stuff
             train_writer = tf.summary.FileWriter(self.unique_exp_save_path)
-            """
 
-            say N envs, N*10 trajectories / batch = 10s
-            Nenvs* 100steps/sec = 100*N steps/s
-            10 minutes to reach 1mil
-            estimated this will take 40+ hours on 16 cpus w/ min bottleneck of 
-            1s/ reset
 
-            to reach 100 mil (16+ hours) need 1mil = iterations*batchsize
-            """
+            # Start A2C agent with a 32 process ParallelEnv, with 
+
 
             for i in range(self.train_iterations):
                 print("Train iter: ", i)

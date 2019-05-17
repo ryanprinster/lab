@@ -23,6 +23,7 @@ import argparse
 import random
 import numpy as np
 import six
+import sys
 # from pathos.multiprocessing import ProcessingPool as Pool
 # from pathos.multiprocessing import ProcessingPool as Pool
 # # pip install pathos
@@ -39,14 +40,13 @@ class RandomAgent(object):
     self.action_spec = action_spec
     self.action_count = len(action_spec)
 
-  def step(self, scale=1):
+  def step(self):
     """Choose a random amount of a randomly selected action."""
     action_choice = random.randint(0, self.action_count - 1)
     action_amount = random.randint(self.action_spec[action_choice]['min'],
                                    self.action_spec[action_choice]['max'])
     action = np.zeros([self.action_count], dtype=np.intc)
-    action[3] = 1*scale
-    print("action:", action)
+    action[action_choice] = action_amount
     return action
 
 def run(width, height, level_script, frame_count):
@@ -54,7 +54,40 @@ def run(width, height, level_script, frame_count):
 
   # TESTING LOCALLY:
 
-  print(np.empty((1,2,3)))
+  from replay_buffer import BigReplayBuffer
+  from rat_trajectory_generator import RatTrajectoryGenerator as Rat
+  from environment import ParallelEnv
+  config={'width': str(80), 'height': str(80)}
+  obs_types = ['RGB_INTERLEAVED', 'ANGLES', 'POS', 'VEL.TRANS', 'ANGLE_TO_WALL', 'DISTANCE_TO_WALL']
+
+  # env = ParallelEnv('tests/empty_room_test', obs_types, config, 4)
+  # print('Making rat')
+  # sys.stdout.flush()
+  # rat = Rat(env)
+  # data = rat.generateAboutNTrajectories(4)
+
+  seed=1
+  env = deepmind_lab.Lab('tests/empty_room_test', obs_types, config=config)
+  env.reset(seed=seed)
+
+  agent = RandomAgent(env.action_spec())
+  actions = []
+  for i in range(100):
+    print(env.observations()['POS'])
+    action = agent.step()
+    print(action)
+    env.step(action)
+    actions.append(action)
+    print
+
+
+  replay_buffer = BigReplayBuffer(env, size=100)
+  replay_buffer.add(np.array([actions]), np.array([seed]))
+  print(replay_buffer.sample(1)['POS'])
+  # data = rat.generateAboutNTrajectories(4)
+  # replay_buffer.add(data[0], data[1], data[2])
+  # print(replay_buffer.sample(1))
+
 
   # config = {'width': str(width), 'height': str(height)}
   # level_script = 'tests/trivial_maze'

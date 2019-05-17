@@ -987,7 +987,8 @@ py_binary(
 
 py_binary(
     name = "python_random_agent_simple",
-    srcs = ["python/random_agent_simple.py", "python/grid_network.py"],
+    srcs = ["python/random_agent_simple.py", "python/grid_network.py", 
+        "python/replay_buffer.py"],
     data = [":deepmind_lab.so"],
     main = "python/random_agent_simple.py",
     visibility = ["//python/tests:__subpackages__"],
@@ -1075,6 +1076,15 @@ py_binary(
     srcs = ["python/environment.py"],
     data = [":deepmind_lab.so"],
     main = "python/environment.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
+
+py_binary(
+    name = "python_replay_buffer",
+    srcs = ["python/replay_buffer.py"],
+    data = [":deepmind_lab.so"],
+    main = "python/replay_buffer.py",
     visibility = ["//python/tests:__subpackages__"],
     deps = ["@six_archive//:six"],
 )

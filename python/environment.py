@@ -61,6 +61,8 @@ class ParallelEnv(object):
 
         for process in self.processes:
             process.start()
+        print("Finished ParallelEnv __init__")
+        sys.stdout.flush()
 
     def _env_worker(self, child_conn, level_script, obs_types, config):
         print("ParallelEnv._env_worker")
