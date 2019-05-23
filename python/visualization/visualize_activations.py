@@ -4,7 +4,7 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.gridspec import GridSpec
 
 # https://stackoverflow.com/questions/46615554/how-to-display-multiple-images-in-one-figure-correctly/46616645
-histograms = np.load('/Users/ryanprinster/test/histograms.npy')
+histograms = np.load('/Users/ryanprinster/place_cell_histograms.npy')
 
 print(histograms.shape)
 

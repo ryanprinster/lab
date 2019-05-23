@@ -71,11 +71,11 @@ end
 -- Note: try setviewpos with game:console()
 
 -- function api:hasEpisodeFinished()
---   -- print("ang vel in env: ")
---   -- print(game:playerInfo().anglesVel[1])
+--   print("ang vel in env: ")
+--   print(game:playerInfo().vel[1])
+--   print(game:playerInfo().vel[2])
+--   print(game:playerInfo().vel[3])
 --   -- print(game:playerInfo().anglesVel[2])
---   -- print(game:playerInfo().anglesVel[3])
--- --   -- print(game:playerInfo().anglesVel[2])
 -- end
 
 -- local once = 0

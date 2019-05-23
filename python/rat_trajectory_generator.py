@@ -64,17 +64,19 @@ class RatTrajectoryGenerator(object):
         positions = []
         directions = []
         trans_velocitys = []
+        strafe_trans_velocitys = []
         ang_velocitys = []
+        actions = []
 
         prev_yaw = 0
         for i in range(self.frame_count):
             dWall = self.env.observations()['DISTANCE_TO_WALL']
             aWall = self.env.observations()['ANGLE_TO_WALL']
             vel = abs(self.env.observations()['VEL.TRANS'][:,1])
+            s_vel = self.env.observations()['VEL.TRANS'][:,0]
             pos = self.env.observations()['POS']
             yaw = self.env.observations()['ANGLES'][:,1]
             obs = self.env.observations()['RGB_INTERLEAVED']
-            # vel_rot = self.env.observations()['VEL.ROT'][1]
             # Note: On the lua side, game:playerInfo().anglesVel only works
             # during :game human playing for some reason
             ang_vel = yaw - prev_yaw # in px/frame
@@ -117,41 +119,53 @@ class RatTrajectoryGenerator(object):
             positions.append(pos)
             directions.append(yaw)
             trans_velocitys.append(vel)
+            strafe_trans_velocitys.append(s_vel)
             ang_velocitys.append(ang_vel)
+            actions.append(action)
 
         observations = np.swapaxes(observations, 0, 1)
         positions = np.swapaxes(positions, 0, 1)
         directions = np.swapaxes(directions, 0, 1)
         trans_velocitys = np.swapaxes(trans_velocitys, 0, 1)
+        strafe_trans_velocitys = np.swapaxes(strafe_trans_velocitys, 0, 1)
         ang_velocitys = np.swapaxes(ang_velocitys, 0, 1)
+        actions = np.swapaxes(actions, 0, 1)
 
         return (observations, positions, directions, trans_velocitys, \
-            ang_velocitys) # hackyyy
+            strafe_trans_velocitys, ang_velocitys, actions)# hackyyy
 
     def generateAboutNTrajectories(self, N):
+        # TODO: Change to exactly N trajectories
         observation_data = []
         position_data = []
         direction_data = []
         trans_velocity_data = []
+        strafe_trans_velocity_data = []
         ang_velocity_data = []
+        actions_data = []
 
         for i in range(int(N/self.env.num_envs)):
-            obs, pos, dire, trans_vel, ang_vel = self.generateTrajectories()
+            obs, pos, dire, trans_vel, s_trans_vel, ang_vel, actions = self.generateTrajectories()
             observation_data.append(obs)
             position_data.append(pos)
             direction_data.append(dire)
             trans_velocity_data.append(trans_vel)
+            strafe_trans_velocity_data.append(s_trans_vel)
             ang_velocity_data.append(ang_vel)
+            actions_data.append(actions)
 
         observation_data = np.concatenate(np.array(observation_data), axis=0)
         position_data = np.concatenate(np.array(position_data), axis=0)
         direction_data = np.concatenate(np.array(direction_data), axis=0)
         trans_velocity_data = np.concatenate(np.array(trans_velocity_data), \
             axis=0)
+        strafe_trans_velocity_data = np.concatenate(np.array(strafe_trans_velocity_data), \
+            axis=0)
         ang_velocity_data = np.concatenate(np.array(ang_velocity_data), axis=0)
+        actions_data = np.concatenate(np.array(actions_data), axis=0)
 
         return (observation_data, position_data, direction_data,
-            trans_velocity_data, ang_velocity_data)
+            trans_velocity_data, strafe_trans_velocity_data, ang_velocity_data), actions_data
 
 
 if __name__ == '__main__':

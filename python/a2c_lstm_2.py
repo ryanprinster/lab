@@ -30,51 +30,11 @@ from pprint import pprint
 import sys
 
 import deepmind_lab
-
-""" 
-Dependencies used for this:
-pip uninstall numpy
-pip install --no-cache-dir numpy==1.15.4
-pip install --upgrade tensorflow
-pip install --upgrade tensorflow-probability
-pip install wrapt
-"""
 import tensorflow as tf
 import trfl
 
 from python import environment
   
-# ______PARAMETERS______
-
-
-# # Network parameters
-# state_size = (80,80,3)
-# action_size = 6
-
-# kernel_size_1 = [8,8,3]
-# output_filters_conv1 = 32     
-# output_filters_conv2 = 64     
-# output_filters_conv3 = 64     
-# hidden_size = 512               # number of units in hidden layer
-# lstm_size = 256
-
-
-# # Training parameters
-# train_episodes = 5000#500          # max number of episodes to learn from
-# num_envs = 4                    # experience mini-batch size
-
-# # global learning_rate
-# # global max_steps
-# # global gamma
-# # global entropy_reg_term
-
-# learning_rate = 0.001          # learning rate
-# n = 20                          # n in n-step updating
-# max_steps = num_envs*train_episodes*n    # max steps before reseting the agent
-# gamma = 0.8                     # future reward discount
-# entropy_reg_term = 0.05           # regularization term for entropy
-# normalise_entropy = False       # when true normalizes entropy to be in [-1, 0] to be more invariant to different size action spaces
-
 
 class ActorCriticNetwork:
     def __init__(self, name, num_envs=4, n=20, entropy_reg_term=.05, 
@@ -332,7 +292,7 @@ class ActorCriticNetwork:
 
 class A2CAgent(object):
     def __init__(self, level, num_envs, n, tensorboard_path, train_episodes, 
-        gamma):
+        gamma, replay_buffer=None):
         config = {
             'fps': str(60),
             'width': str(80),
@@ -413,23 +373,11 @@ class A2CAgent(object):
                     n_step_next_states[i] = next_states
 
 
-                print("n_step_next_states.shape: ", n_step_next_states.shape)
-                print("n_step_next_states[-1]: ", n_step_next_states[-1])
-                print("n_step_rewards.shape: ", n_step_rewards.shape)
-                print("expecting (T, B, 80, 80, 3) and (T, B)")
-                print("hidden_state_input: ", hidden_state_input.shape)
-
                 n_step_bootstrap_vals = self.get_bootstrap(n_step_next_states, \
                     n_step_rewards, action_list, hidden_state_input, sess)
 
                 n_step_pcontinues = self.get_discounts(n_step_rewards)
 
-
-                print("n_step_actions.shape: ", n_step_actions)
-                print("n_step_next_states.shape: ", n_step_next_states.shape)
-                print("n_step_rewards: ", n_step_rewards)
-                print("n_step_bootstrap_vals: ", n_step_bootstrap_vals)
-                print("n_step_pcontinues: ", n_step_pcontinues)
 
                 # Train step
                 loss, extra, summary = self.ac_network.train_step(sess, 

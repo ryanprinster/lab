@@ -60,6 +60,11 @@ class BigReplayBuffer(object):
     Replay Buffer that saves storage space by only saving the actions taken 
     in an environment and the seed for that round, such that it re-generate
     the same observations from the environment.
+
+    The tradeoff is there is about 1 second of latency per sample, due to the 
+    env.reset() bottleneck.
+
+    TODO: Make work with ParallelEnv
     """
     def __init__(self, env, action_size=7, size=20e6, traj_len=100):
         self.size = int(size) #what, are you even going to fill this up?

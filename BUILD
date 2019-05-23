@@ -1107,6 +1107,35 @@ py_binary(
     deps = ["@six_archive//:six"],
 )
 
+py_binary(
+    name = "python_trainers",
+    srcs = [
+        "python/environment.py",
+        "python/cells.py",
+        "python/grid_network.py",
+        "python/rat_trajectory_generator.py",
+        "python/replay_buffer.py",
+        "python/a2c_lstm_2.py",
+    ],
+    data = [":deepmind_lab.so"],
+    main = "python/trainers.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
+
+py_binary(
+    name = "python_slurm_manager",
+    srcs = [
+        "python/slurm_manager.py",
+        "python/trainers.py",
+        "python/environment.py",
+    ],
+    data = [":deepmind_lab.so"],
+    main = "python/slurm_manager.py",
+    visibility = ["//python/tests:__subpackages__"],
+    deps = ["@six_archive//:six"],
+)
+
 LOAD_TEST_SCRIPTS = [
     level_script[len("game_scripts/levels/"):-len(".lua")]
     for level_script in glob(

@@ -38,6 +38,9 @@ class PlaceCells(object):
             activation = self._gaussian(x, mu, self.sigma)
             activations.append(activation)
         normalized_activations = activations/np.sum(np.array(activations))
+        if np.isnan(np.sum(normalized_activations)):
+            print("NAN PROBLEM!")
+            return np.zeros(normalized_activations.shape)
         return normalized_activations
 
     def get_ground_truth_activations(self, X):
