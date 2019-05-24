@@ -365,7 +365,7 @@ class GridNetworkAgent(object):
             self.train_op = self.optimizer.apply_gradients(new_gvs)
 
             # Summary Stuff
-            loss_summary = tf.summary.histogram('loss', self.loss)
+            loss_summary = tf.summary.scalar('loss', self.loss)
             
             self.summary = tf.summary.merge_all(scope=self.name)
 

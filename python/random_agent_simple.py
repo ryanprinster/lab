@@ -60,52 +60,28 @@ def run(width, height, level_script, frame_count):
   config={'width': str(80), 'height': str(80)}
   obs_types = ['RGB_INTERLEAVED', 'ANGLES', 'POS', 'VEL.TRANS', 'ANGLE_TO_WALL', 'DISTANCE_TO_WALL']
 
-  # env = ParallelEnv('tests/empty_room_test', obs_types, config, 4)
-  # print('Making rat')
-  # sys.stdout.flush()
-  # rat = Rat(env)
-  # data = rat.generateAboutNTrajectories(4)
-
-  seed=1
-  env = deepmind_lab.Lab('tests/empty_room_test', obs_types, config=config)
+  seed=[1,1,1,1]
+  env = ParallelEnv('tests/empty_room_test', obs_types, config, 4)
   env.reset(seed=seed)
+  print("I think it worked?")
+  print(env.observations()['POS'])
 
-  agent = RandomAgent(env.action_spec())
-  actions = []
-  for i in range(100):
-    print(env.observations()['POS'])
-    action = agent.step()
-    print(action)
-    env.step(action)
-    actions.append(action)
-    print
-
-
-  replay_buffer = BigReplayBuffer(env, size=100)
-  replay_buffer.add(np.array([actions]), np.array([seed]))
-  print(replay_buffer.sample(1)['POS'])
-  # data = rat.generateAboutNTrajectories(4)
-  # replay_buffer.add(data[0], data[1], data[2])
-  # print(replay_buffer.sample(1))
-
-
-  # config = {'width': str(width), 'height': str(height)}
-  # level_script = 'tests/trivial_maze'
-  # observations = ['RGB_INTERLEAVED']
-  # env = deepmind_lab.Lab(level_script, observations, config=config)
-  # env.reset()
+  # env = deepmind_lab.Lab('tests/empty_room_test', obs_types, config=config)
 
   # agent = RandomAgent(env.action_spec())
-
-  # while True:
+  # actions = []
+  # for i in range(100):
+  #   print(env.observations()['POS'])
   #   action = agent.step()
-  #   print(env.step(action))
-  #   print(env.num_steps())
+  #   print(action)
+  #   env.step(action)
+  #   actions.append(action)
+  #   print
 
-  # print("DISTANCE_TO_WALL")
-  # print(env.observations()['DISTANCE_TO_WALL'])
-  # print("ANGLE_TO_WALL")
-  # print(env.observations()['ANGLE_TO_WALL'])
+
+  # replay_buffer = BigReplayBuffer(env, size=100)
+  # replay_buffer.add(np.array([actions]), np.array([seed]))
+  # print(replay_buffer.sample(1)['POS'])
 
 
 if __name__ == '__main__':

@@ -66,6 +66,8 @@ class ParallelEnv(object):
 
     def _env_worker(self, child_conn, level_script, obs_types, config):
         print("ParallelEnv._env_worker")
+        sys.stdout.flush()
+        
         env = deepmind_lab.Lab(level_script, obs_types, config=config)
         env.reset()
 
@@ -73,7 +75,7 @@ class ParallelEnv(object):
             # data is a dict mapping inputs to values.
             flag, data = child_conn.recv()
             if flag == 'RESET':
-                env.reset()
+                env.reset(seed=data['seed'])
                 package = True
             elif flag == 'OBSERVATIONS':
                 package = env.observations()
@@ -92,9 +94,11 @@ class ParallelEnv(object):
             conn.send(packages[i])
         return [conn.recv() for conn in self.parent_conns]
 
-    def reset(self):
+    def reset(self, seed=None):
         # reset each env.
-        packages = [('RESET', {}) for i in range(self.num_envs)]
+        if seed is None:
+            seed = [None for i in range(self.num_envs)]
+        packages = [('RESET', {'seed': seed[i]}) for i in range(self.num_envs)]
         return self._send_then_recv(packages)
 
     def observations(self):
