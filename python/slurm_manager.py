@@ -45,10 +45,10 @@ class SlurmManager(object):
 
         hyperparams = [
             [1e-3],
-            [16],
+            [32],
             [100000],
-            [4],
-            [1],
+            [16],
+            [.01,1,10,40],
         ]
 
         combinations = list(itertools.product(*hyperparams))
@@ -68,11 +68,9 @@ class SlurmManager(object):
 
 def run(slurm_array_index, base_path):
 
-    print("testing vision module:")
-
     # TESTING LOCALLY:
-    base_path = '/mnt/hgfs/ryanprinster/data/'
-    slurm_array_index = 0
+    # base_path = '/mnt/hgfs/ryanprinster/data/'
+    # slurm_array_index = 0
 
     SlurmManager(slurm_array_index, base_path).run()
 

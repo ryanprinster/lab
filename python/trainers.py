@@ -155,7 +155,8 @@ class GridCellAgentTrainer(object):
         self.head_cells = HeadDirCells(M)
         self.grid_network = GridNetworkAgent(batch_size=batch_size, name="grid_network", 
             learning_rate=learning_rate, max_time=trajectory_length)
-        self.vision_module = VisionModule(name="vision_module")
+        self.vision_module = VisionModule(name="vision_module", 
+            learning_rate=learning_rate, max_time=trajectory_length)
 
         self.rat = Rat(self.env_policy, trajectory_length)
         # self.a2c_agent = A2CAgent(level_script, num_envs, n, tensorboard_path, train_iterations, 
@@ -174,6 +175,7 @@ class GridCellAgentTrainer(object):
         self.restore = restore
         self.saver = tf.train.Saver()
 
+
     def train(self):
         # Start A2C agent with a 32 process ParallelEnv
             # Extend A2C agent to add experience to replay
@@ -183,6 +185,7 @@ class GridCellAgentTrainer(object):
         # Start main Trainer, ReplayBuffer on main process, with shitton of memory
 
         print("Trainer.train")
+
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
 
@@ -204,7 +207,7 @@ class GridCellAgentTrainer(object):
                 # TODO: add to experience replay with actions
 
                 # Vision Network
-                vision_loss, pred_place_cell, pred_head_dir = \
+                vision_loss, pred_place_cell, pred_head_dir, vision_summary = \
                     self.vision_module.train_step(sess, data, self.place_cells, 
                     self.head_cells)
 
@@ -212,12 +215,11 @@ class GridCellAgentTrainer(object):
                 grid_loss, grid_summary = self.grid_network.train_step(sess, data, 
                     self.place_cells, self.head_cells, pred_place_cell, pred_head_dir)
 
-
-
                 train_writer.add_summary(grid_summary, i)
+                train_writer.add_summary(vision_summary, i)
                 print("grid_loss loss: ", np.sum(grid_loss))
                 print("vision_loss loss: ", np.sum(vision_loss))
-
+                sys.stdout.flush()
 
                 # Save stuff every once in a while
                 if i % 10 == 0:

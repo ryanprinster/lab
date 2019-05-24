@@ -159,7 +159,8 @@ class GridNetwork(object):
                 labels=self.head_dir_labels,
                 logits=self.pred_head_dir_logits)
 
-            self.loss = tf.math.add(self.place_cell_loss, self.head_dir_loss)
+            self.loss = tf.reduce_mean(\
+                tf.math.add(self.place_cell_loss, self.head_dir_loss))
 
             self.optimizer = tf.train.RMSPropOptimizer(\
                 learning_rate=learning_rate, momentum=.9).minimize(self.loss)
@@ -182,8 +183,7 @@ class GridNetwork(object):
             # self.train_op = self.optimizer.apply_gradients(new_gvs)
 
             # Summary Stuff
-            self.loss_summary = tf.summary.histogram('loss', self.loss)
-            self.loss_summary = tf.summary.histogram('mean loss', tf.math.reduce_mean(self.loss))
+            self.loss_summary = tf.summary.scalar('loss', self.loss)
             self.summary = tf.summary.merge_all()
 
 
@@ -272,12 +272,15 @@ class GridNetworkAgent(object):
         N=256, M=12, learning_rate=1e-3, grad_clip_thresh=1e-5, max_time=100):
 
         # TODO: share these
+        self.name = name
         self.grid_layer_size = grid_layer_size
         self.batch_size = batch_size
         self.max_time = max_time
 
+        # self.graph = tf.Graph()
+        # with self.graph.as_default():
         with tf.variable_scope(name):
-            
+
             # Constructing inputs to the lstm layer
             self.fwd_trans_velocity = tf.placeholder(tf.float32, [None, max_time, 1],
                 name='fwd_trans_vel_input')
@@ -301,8 +304,6 @@ class GridNetworkAgent(object):
                 self.z,
                 ],
                 axis=2, name='lstm_input')
-
-            print("self.lstm_input.shape:", self.lstm_input.shape)
 
             self.lstm_cell = tf.nn.rnn_cell.LSTMCell(lstm_size, state_is_tuple=False)
             self.lstm_init_cell_hidden_state = self.lstm_cell.zero_state(\
@@ -329,9 +330,6 @@ class GridNetworkAgent(object):
             self.pred_head_dir_logits = tf.contrib.layers.fully_connected(\
                 self.dropout, M)
 
-            # self.pred_place_cell = tf.contrib.layers.softmax(self.pred_place_cell_logits)
-            # self.pred_head_dir = tf.contrib.layers.softmax(self.pred_head_dir_logits)
-
             # Construct loss
             self.place_cell_labels = tf.placeholder(tf.float32, [None, max_time, N],
                 name='place_cell_labels')
@@ -345,10 +343,8 @@ class GridNetworkAgent(object):
                 labels=self.head_dir_labels,
                 logits=self.pred_head_dir_logits)
 
-            self.loss = tf.math.add(self.place_cell_loss, self.head_dir_loss)
-
-            # self.optimizer = tf.train.RMSPropOptimizer(\
-            #     learning_rate=learning_rate, momentum=.9).minimize(self.loss)
+            self.loss = tf.reduce_mean(\
+                tf.math.add(self.place_cell_loss, self.head_dir_loss))
 
             # Optimizer
             # TODO: Add weight decay to decoder layers
@@ -363,14 +359,15 @@ class GridNetworkAgent(object):
                 grad_clip_thresh), var) \
                 for grad, var in gvs[-6:]]
 
+
             new_gvs = gvs[:-6] + capped_gvs
 
             self.train_op = self.optimizer.apply_gradients(new_gvs)
 
             # Summary Stuff
-            self.loss_summary = tf.summary.histogram('loss', self.loss)
-            self.loss_summary = tf.summary.histogram('mean loss', tf.math.reduce_mean(self.loss))
-            self.summary = tf.summary.merge_all()
+            loss_summary = tf.summary.histogram('loss', self.loss)
+            
+            self.summary = tf.summary.merge_all(scope=self.name)
 
 
     def train_step(self, sess, data, place_cells, head_cells, y, z):
@@ -381,7 +378,7 @@ class GridNetworkAgent(object):
             transform_input_data(data, place_cells, head_cells)
 
         # Doing the masking layer here, because... well... im terrible
-        getrand01 = lambda: 1 if random.random() > .95 else 0        
+        getrand01 = lambda: 1.0 if random.random() > .95 else 0.0        
         for i in range(self.batch_size):
             for j in range(self.max_time):
                 mask = getrand01()
@@ -472,7 +469,11 @@ class VisionModule(object):
         self.N = N
         self.M = M
         self.learning_rate = learning_rate
+        
+        # self.graph = tf.Graph()
+        # with self.graph.as_default():
         with tf.variable_scope(name):
+
             # Input images
             self.inputs = tf.placeholder(tf.float32, \
                 [None, max_time, state_size[0], state_size[1], state_size[2]], \
@@ -499,19 +500,20 @@ class VisionModule(object):
                 self.conv4_reshape, M)
 
             # Construct loss
-            self.place_cell_labels = tf.placeholder(tf.float32, [None, max_time, N],
-                name='place_cell_labels')
+            self.place_cell_labels_1 = tf.placeholder(tf.float32, [None, max_time, N],
+                name='place_cell_labels_1')
             self.head_dir_labels = tf.placeholder(tf.float32, [None, max_time, M],
                 name='head_dir_labels')
 
             self.place_cell_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
-                labels=self.place_cell_labels,
+                labels=self.place_cell_labels_1,
                 logits=self.pred_place_cell_logits)
             self.head_dir_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
                 labels=self.head_dir_labels,
                 logits=self.pred_head_dir_logits)
 
-            self.loss = tf.math.add(self.place_cell_loss, self.head_dir_loss)
+            self.loss = tf.reduce_mean(\
+                tf.math.add(self.place_cell_loss, self.head_dir_loss))
 
             # Optimizer
             self.optimizer = tf.train.RMSPropOptimizer(\
@@ -529,6 +531,9 @@ class VisionModule(object):
             # Note: may want to use tf.stop gradient if hooking this up directly
             # to other network.
 
+            loss_summary = tf.summary.scalar('loss', self.loss)
+            self.summary = tf.summary.merge_all(scope=self.name)
+
             # TODO: Make summary
             # TODO: Mask outputs?
 
@@ -540,23 +545,22 @@ class VisionModule(object):
         
         # Todo: check correct shape of observation_data 
         observation_data = data[0]
-        print("observation_data.shape in vision module train step:", observation_data.shape)
 
         # Todo: need to concatenate output of this with a vision module
 
         feed = {
             self.inputs: observation_data,
-            self.place_cell_labels: place_cell_activity_labels,
+            self.place_cell_labels_1: place_cell_activity_labels,
             self.head_dir_labels: head_cell_activity_labels,
         }
 
         # TODO: add tensorboard summaries
-        _, loss, pred_place_cell, pred_head_dir, = sess.run(
+        _, loss, pred_place_cell, pred_head_dir, summary = sess.run(
             [self.optimizer, self.loss, self.pred_place_cell, 
-            self.pred_head_dir], 
+            self.pred_head_dir, self.summary], 
             feed_dict=feed)
 
-        return loss, pred_place_cell, pred_head_dir
+        return loss, pred_place_cell, pred_head_dir, summary
 
 
 
