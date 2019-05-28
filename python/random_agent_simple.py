@@ -60,12 +60,20 @@ def run(width, height, level_script, frame_count):
   config={'width': str(80), 'height': str(80)}
   obs_types = ['RGB_INTERLEAVED', 'ANGLES', 'POS', 'VEL.TRANS', 'ANGLE_TO_WALL', 'DISTANCE_TO_WALL']
 
-  seed=[1,1,1,1]
+  seed=[-1,0,1,sys.maxint]
   env = ParallelEnv('tests/empty_room_test', obs_types, config, 4)
   env.reset(seed=seed)
   print("I think it worked?")
   print(env.observations()['POS'])
 
+  rat = Rat(env, 100)
+  data, actions, seeds = rat.generateAboutNTrajectories(16)
+  print("actions", actions.shape)
+  print("seeds", seeds.shape)
+  print(seeds)
+  env.reset(seed=seeds)
+  
+  
   # env = deepmind_lab.Lab('tests/empty_room_test', obs_types, config=config)
 
   # agent = RandomAgent(env.action_spec())

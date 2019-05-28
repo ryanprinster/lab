@@ -81,7 +81,7 @@ class GridNetwork(object):
 
         # TODO: share these
         self.grid_layer_size = grid_layer_size
-
+        self.name = name
         
         with tf.variable_scope(name):
             
@@ -162,29 +162,29 @@ class GridNetwork(object):
             self.loss = tf.reduce_mean(\
                 tf.math.add(self.place_cell_loss, self.head_dir_loss))
 
-            self.optimizer = tf.train.RMSPropOptimizer(\
-                learning_rate=learning_rate, momentum=.9).minimize(self.loss)
-
-            # # Optimizer
-            # # TODO: Add weight decay to decoder layers
             # self.optimizer = tf.train.RMSPropOptimizer(\
-            #     learning_rate=learning_rate, momentum=.9)
+            #     learning_rate=learning_rate, momentum=.9).minimize(self.loss)
+
+            # Optimizer
+            # TODO: Add weight decay to decoder layers
+            self.optimizer = tf.train.RMSPropOptimizer(\
+                learning_rate=learning_rate, momentum=.99, decay=1-0.0001)
             
-            # # Clip gradients
-            # gvs = self.optimizer.compute_gradients(self.loss)
-            # # Note: currently, last 6 ones here correspond to the grid cell layer
-            # # and the place/head cell layers. 
-            # capped_gvs = [(tf.clip_by_value(grad, -grad_clip_thresh, \
-            #     grad_clip_thresh), var) \
-            #     for grad, var in gvs[-6:]]
+            # Clip gradients
+            gvs = self.optimizer.compute_gradients(self.loss)
+            # Note: currently, last 6 ones here correspond to the grid cell layer
+            # and the place/head cell layers. 
+            capped_gvs = [(tf.clip_by_value(grad, -grad_clip_thresh, \
+                grad_clip_thresh), var) \
+                for grad, var in gvs[-6:]]
 
-            # new_gvs = gvs[:-6] + capped_gvs
+            new_gvs = gvs[:-6] + capped_gvs
 
-            # self.train_op = self.optimizer.apply_gradients(new_gvs)
+            self.train_op = self.optimizer.apply_gradients(new_gvs)
 
             # Summary Stuff
             self.loss_summary = tf.summary.scalar('loss', self.loss)
-            self.summary = tf.summary.merge_all()
+            self.summary = tf.summary.merge_all(scope=self.name)
 
 
     def train_step(self, sess, data, place_cells, head_cells):
@@ -206,7 +206,7 @@ class GridNetwork(object):
         }
 
         _, loss, summary = sess.run(
-            [self.optimizer, self.loss, self.summary], 
+            [self.train_op, self.loss, self.summary], 
             feed_dict=feed)
 
         return loss, summary

@@ -11,7 +11,7 @@ import sys
 import tensorflow as tf
 
 from multiprocessing import Process, Queue, Pipe
-from trainers import GridCellAgentTrainer
+from trainers import Trainer
 
 """
 Manager for slurm jobs
@@ -44,18 +44,18 @@ class SlurmManager(object):
         """
 
         hyperparams = [
-            [1e-3],
+            [1e-1, 1e-2, 1e-3, 1e-4, 1e-5],
             [32],
             [100000],
             [16],
-            [.01,1,10,40],
+            [1],
         ]
 
         combinations = list(itertools.product(*hyperparams))
         print("Hyperparam combos: ", combinations)
         hyperparam_selection = combinations[self.slurm_array_index]
         print("Hyperparam selection: ", hyperparam_selection)
-        trainerParallel = GridCellAgentTrainer(
+        trainerParallel = Trainer(
             base_path=self.base_path,
             unique_exp_name='job_' + str(self.slurm_array_index),
             learning_rate=hyperparam_selection[0],
@@ -69,8 +69,8 @@ class SlurmManager(object):
 def run(slurm_array_index, base_path):
 
     # TESTING LOCALLY:
-    # base_path = '/mnt/hgfs/ryanprinster/data/'
-    # slurm_array_index = 0
+    base_path = '/mnt/hgfs/ryanprinster/data/'
+    slurm_array_index = 0
 
     SlurmManager(slurm_array_index, base_path).run()
 

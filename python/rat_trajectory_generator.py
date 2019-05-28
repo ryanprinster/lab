@@ -58,7 +58,8 @@ class RatTrajectoryGenerator(object):
         print("Generating Trajectories")
         sys.stdout.flush()
 
-        self.env.reset()
+        seeds = [random.randint(-sys.maxint - 1, sys.maxint) for i in range(self.env.num_envs)]
+        self.env.reset(seed=seeds)
 
         observations = []
         positions = []
@@ -130,9 +131,10 @@ class RatTrajectoryGenerator(object):
         strafe_trans_velocitys = np.swapaxes(strafe_trans_velocitys, 0, 1)
         ang_velocitys = np.swapaxes(ang_velocitys, 0, 1)
         actions = np.swapaxes(actions, 0, 1)
+        seeds = np.array(seeds)
 
         return (observations, positions, directions, trans_velocitys, \
-            strafe_trans_velocitys, ang_velocitys, actions)# hackyyy
+            strafe_trans_velocitys, ang_velocitys, actions, seeds)# hackyyy
 
     def generateAboutNTrajectories(self, N):
         # TODO: Change to exactly N trajectories
@@ -143,9 +145,12 @@ class RatTrajectoryGenerator(object):
         strafe_trans_velocity_data = []
         ang_velocity_data = []
         actions_data = []
+        seeds_data = []
 
         for i in range(int(N/self.env.num_envs)):
-            obs, pos, dire, trans_vel, s_trans_vel, ang_vel, actions = self.generateTrajectories()
+            obs, pos, dire, trans_vel, s_trans_vel, ang_vel, actions, seeds = \
+            self.generateTrajectories()
+
             observation_data.append(obs)
             position_data.append(pos)
             direction_data.append(dire)
@@ -153,6 +158,7 @@ class RatTrajectoryGenerator(object):
             strafe_trans_velocity_data.append(s_trans_vel)
             ang_velocity_data.append(ang_vel)
             actions_data.append(actions)
+            seeds_data.append(seeds)
 
         observation_data = np.concatenate(np.array(observation_data), axis=0)
         position_data = np.concatenate(np.array(position_data), axis=0)
@@ -163,9 +169,10 @@ class RatTrajectoryGenerator(object):
             axis=0)
         ang_velocity_data = np.concatenate(np.array(ang_velocity_data), axis=0)
         actions_data = np.concatenate(np.array(actions_data), axis=0)
+        seeds_data = np.concatenate(np.array(seeds_data), axis=0)
 
         return (observation_data, position_data, direction_data,
-            trans_velocity_data, strafe_trans_velocity_data, ang_velocity_data), actions_data
+            trans_velocity_data, strafe_trans_velocity_data, ang_velocity_data), actions_data, seeds_data
 
 
 if __name__ == '__main__':
