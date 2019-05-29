@@ -24,6 +24,48 @@ from rat_trajectory_generator import RatTrajectoryGenerator as Rat
 from replay_buffer import ReplayBuffer, BigReplayBuffer
 from a2c_lstm_2 import A2CAgent 
 
+
+class TrajectoryGenerator(object):
+    """
+    Class to just generate lots of data for the grid network only. 
+    """
+    def __init__(self, 
+        base_path,
+        unique_exp_name, # string indicating experiment
+        trajectory_length=100, 
+        num_traj_to_generate=5000, 
+        num_envs=4,
+        level_script='tests/empty_room_test', 
+        obs_types=['RGB_INTERLEAVED', 'VEL.TRANS', 'VEL.ROT', 'POS',
+                'DISTANCE_TO_WALL', 'ANGLE_TO_WALL', 'ANGLES'],
+        config={'width': str(80), 'height': str(80)}):
+
+        self.env = ParallelEnv(level_script, obs_types, config, num_envs)
+        self.rat = Rat(self.env, trajectory_length)
+
+        self.num_traj_to_generate = num_traj_to_generate
+        self.base_path = base_path
+        self.experiments_save_path = self.base_path + 'experiments/'
+        self.unique_exp_save_path = self.experiments_save_path \
+            + 'exp_' + unique_exp_name + '/'
+
+
+    def train(self):
+
+        data, actions, seeds = self.rat.generateAboutNTrajectories(self.num_traj_to_generate)
+
+        print("Done generating trajectories")
+        _, position_data, direction_data, trans_velocity_data, \
+        strafe_trans_velocity_data, ang_velocity_data = data
+
+        np.save(self.base_path + 'position_data.npy', position_data)
+        np.save(self.base_path + 'direction_data.npy', direction_data)
+        np.save(self.base_path + 'trans_velocity_data.npy', trans_velocity_data)
+        np.save(self.base_path + 'strafe_trans_velocity_data.npy', strafe_trans_velocity_data)
+        np.save(self.base_path + 'ang_velocity_data.npy', ang_velocity_data)
+
+       
+
 class Trainer(object):
     """
     Class meant to run the training pipeline for the grid network with one set

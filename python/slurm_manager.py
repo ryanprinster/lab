@@ -11,7 +11,7 @@ import sys
 import tensorflow as tf
 
 from multiprocessing import Process, Queue, Pipe
-from trainers import Trainer
+from trainers import Trainer, TrajectoryGenerator
 
 """
 Manager for slurm jobs
@@ -43,34 +43,52 @@ class SlurmManager(object):
         ]
         """
 
+        # For GridCellAgentTrainer and Trainer
+        # hyperparams = [
+        #     [1e-1, 1e-2, 1e-3, 1e-4, 1e-5],
+        #     [32],
+        #     [100000],
+        #     [16],
+        #     [1],
+        # ]
+
+        # combinations = list(itertools.product(*hyperparams))
+        # print("Hyperparam combos: ", combinations)
+        # hyperparam_selection = combinations[self.slurm_array_index]
+        # print("Hyperparam selection: ", hyperparam_selection)
+        # trainerParallel = Trainer(
+        #     base_path=self.base_path,
+        #     unique_exp_name='job_' + str(self.slurm_array_index),
+        #     learning_rate=hyperparam_selection[0],
+        #     batch_size=hyperparam_selection[1],
+        #     train_iterations=hyperparam_selection[2],
+        #     num_envs=hyperparam_selection[3],
+        #     sigma=hyperparam_selection[4])
+        # trainerParallel.train()
+
+        # For TrajectoryGenerator
         hyperparams = [
-            [1e-1, 1e-2, 1e-3, 1e-4, 1e-5],
-            [32],
+            [100],
             [100000],
-            [16],
-            [1],
         ]
 
         combinations = list(itertools.product(*hyperparams))
         print("Hyperparam combos: ", combinations)
         hyperparam_selection = combinations[self.slurm_array_index]
         print("Hyperparam selection: ", hyperparam_selection)
-        trainerParallel = Trainer(
+        trainer = TrajectoryGenerator(
             base_path=self.base_path,
             unique_exp_name='job_' + str(self.slurm_array_index),
-            learning_rate=hyperparam_selection[0],
-            batch_size=hyperparam_selection[1],
-            train_iterations=hyperparam_selection[2],
-            num_envs=hyperparam_selection[3],
-            sigma=hyperparam_selection[4])
-        trainerParallel.train()
+            num_envs=hyperparam_selection[0],
+            num_traj_to_generate=hyperparam_selection[0])
+        trainer.train()
 
 
 def run(slurm_array_index, base_path):
 
     # TESTING LOCALLY:
-    base_path = '/mnt/hgfs/ryanprinster/data/'
-    slurm_array_index = 0
+    # base_path = '/mnt/hgfs/ryanprinster/data/'
+    # slurm_array_index = 0
 
     SlurmManager(slurm_array_index, base_path).run()
 

@@ -71,13 +71,14 @@ class RatTrajectoryGenerator(object):
 
         prev_yaw = 0
         for i in range(self.frame_count):
-            dWall = self.env.observations()['DISTANCE_TO_WALL']
-            aWall = self.env.observations()['ANGLE_TO_WALL']
-            vel = abs(self.env.observations()['VEL.TRANS'][:,1])
-            s_vel = self.env.observations()['VEL.TRANS'][:,0]
-            pos = self.env.observations()['POS']
-            yaw = self.env.observations()['ANGLES'][:,1]
-            obs = self.env.observations()['RGB_INTERLEAVED']
+            env_observations = self.env.observations()
+            dWall = env_observations['DISTANCE_TO_WALL']
+            aWall = env_observations['ANGLE_TO_WALL']
+            vel = abs(env_observations['VEL.TRANS'][:,1])
+            s_vel = env_observations['VEL.TRANS'][:,0]
+            pos = env_observations['POS']
+            yaw = env_observations['ANGLES'][:,1]
+            obs = env_observations['RGB_INTERLEAVED']
             # Note: On the lua side, game:playerInfo().anglesVel only works
             # during :game human playing for some reason
             ang_vel = yaw - prev_yaw # in px/frame
@@ -136,7 +137,11 @@ class RatTrajectoryGenerator(object):
         return (observations, positions, directions, trans_velocitys, \
             strafe_trans_velocitys, ang_velocitys, actions, seeds)# hackyyy
 
-    def generateAboutNTrajectories(self, N):
+    def generateAboutNTrajectories(self, N, returnObsData=True):
+        """
+        returnObsData: whether or not to return observation data, 
+                 for space saving purposes
+        """
         # TODO: Change to exactly N trajectories
         observation_data = []
         position_data = []
@@ -151,7 +156,8 @@ class RatTrajectoryGenerator(object):
             obs, pos, dire, trans_vel, s_trans_vel, ang_vel, actions, seeds = \
             self.generateTrajectories()
 
-            observation_data.append(obs)
+            if returnObsData:
+                observation_data.append(obs)
             position_data.append(pos)
             direction_data.append(dire)
             trans_velocity_data.append(trans_vel)
@@ -159,8 +165,10 @@ class RatTrajectoryGenerator(object):
             ang_velocity_data.append(ang_vel)
             actions_data.append(actions)
             seeds_data.append(seeds)
-
-        observation_data = np.concatenate(np.array(observation_data), axis=0)
+        
+        if returnObsData:
+            observation_data = np.concatenate(np.array(observation_data), axis=0)
+        
         position_data = np.concatenate(np.array(position_data), axis=0)
         direction_data = np.concatenate(np.array(direction_data), axis=0)
         trans_velocity_data = np.concatenate(np.array(trans_velocity_data), \
@@ -171,9 +179,14 @@ class RatTrajectoryGenerator(object):
         actions_data = np.concatenate(np.array(actions_data), axis=0)
         seeds_data = np.concatenate(np.array(seeds_data), axis=0)
 
-        return (observation_data, position_data, direction_data,
-            trans_velocity_data, strafe_trans_velocity_data, ang_velocity_data), actions_data, seeds_data
-
+        if returnObsData:
+            return (observation_data, position_data, direction_data,
+                trans_velocity_data, strafe_trans_velocity_data, 
+                ang_velocity_data), actions_data, seeds_data
+        else:
+            (None, position_data, direction_data, trans_velocity_data, 
+                strafe_trans_velocity_data, ang_velocity_data), \
+                actions_data, seeds_data
 
 if __name__ == '__main__':
     pass
