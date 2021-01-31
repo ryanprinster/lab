@@ -52,7 +52,7 @@ class TrajectoryGenerator(object):
 
     def train(self):
 
-        data, actions, seeds = self.rat.generateAboutNTrajectories(self.num_traj_to_generate)
+        data, actions, seeds = self.rat.generateAboutNTrajectories(self.num_traj_to_generate, returnObsData=False)
 
         print("Done generating trajectories")
         _, position_data, direction_data, trans_velocity_data, \
@@ -134,7 +134,23 @@ class Trainer(object):
                 print("Train iter: ", i)
                 sys.stdout.flush()
 
-                data, actions, seeds = self.rat.generateAboutNTrajectories(self.batch_size)
+                # data, actions, seeds = self.rat.generateAboutNTrajectories(self.batch_size)
+                pos_data = np.load(self.base_path + 'traj_data/' + 'position_data.npy')
+                pos_data = np.load(self.base_path + 'traj_data/' + 'position_data.npy')
+
+
+                position_data = np.load(self.base_path + 'traj_data/' + 'position_data.npy')
+                direction_data = np.load(self.base_path + 'traj_data/' + 'direction_data.npy')
+                trans_velocity_data = np.load(self.base_path + 'traj_data/' + 'trans_velocity_data.npy')
+                strafe_trans_velocity_data = np.load(self.base_path + 'traj_data/' + 'strafe_trans_velocity_data.npy')
+                ang_velocity_data = np.load(self.base_path + 'traj_data/' + 'ang_velocity_data.npy')
+
+                data = None, position_data, direction_data, \
+                    trans_velocity_data, strafe_trans_velocity_data, \
+                    ang_velocity_data
+
+                # Sample
+
                 loss, summary = self.grid_network.train_step(sess, data, self.place_cells, 
                     self.head_cells)
                 train_writer.add_summary(summary, i)
